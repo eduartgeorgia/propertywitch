@@ -2333,7 +2333,20 @@ Write a brief, helpful response (2-3 sentences) about these results. Be conversa
 };
 var detectIntent = async (message, conversationHistory, hasRecentResults) => {
   const health = await checkAIHealth();
-  const lower = message.toLowerCase();
+  const lower = message.toLowerCase().trim();
+  const confirmationPatterns = /^(yes|yeah|yep|yup|sure|please|ok|okay|go ahead|do it|definitely|absolutely|of course|please do|yes please)\.?$/i;
+  if (confirmationPatterns.test(lower)) {
+    if (conversationHistory && conversationHistory.length > 0) {
+      const lastAssistantMsg = [...conversationHistory].reverse().find((m) => m.role === "assistant");
+      if (lastAssistantMsg) {
+        const assistantLower = lastAssistantMsg.content.toLowerCase();
+        if (assistantLower.includes("search again") || assistantLower.includes("try searching") || assistantLower.includes("refine your search") || assistantLower.includes("would you like me to") || assistantLower.includes("shall i search") || assistantLower.includes("want me to search") || assistantLower.includes("focus on central") || assistantLower.includes("narrow down")) {
+          return { intent: "refine_search", isPropertySearch: true, confirmationContext: lastAssistantMsg.content };
+        }
+      }
+    }
+    return { intent: "follow_up", isPropertySearch: false };
+  }
   const searchIndicators = [
     /(?:find|show|search|looking for|want|need)\s+(?:me\s+)?(?:a\s+)?(?:land|house|apartment|villa|property|properties|flat)/i,
     /(?:under|below|around|about)\s+[\d€$£]+/i,
@@ -3628,12 +3641,14 @@ router4.post("/chat", async (req, res) => {
     }));
     let shouldSearch = mode === "search";
     let intentType = "search";
+    let confirmationContext;
     if (mode === "auto") {
       t0 = Date.now();
       const hasRecentResults = !!lastSearchContext;
       const intent = await detectIntent(message, aiHistory, hasRecentResults);
       timings.intentDetection = Date.now() - t0;
       intentType = intent.intent;
+      confirmationContext = intent.confirmationContext;
       shouldSearch = intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings";
     } else if (mode === "chat") {
       shouldSearch = false;
@@ -3678,11 +3693,29 @@ router4.post("/chat", async (req, res) => {
       });
     }
     let searchQuery = message;
+    const isConfirmation = /^(yes|yeah|yep|yup|sure|please|ok|okay|go ahead|do it|definitely|absolutely|of course|please do|yes please)\.?$/i.test(message.trim());
     if ((intentType === "show_listings" || intentType === "refine_search") && lastSearchContext) {
       const originalQueryMatch = lastSearchContext.match(/User searched for: "([^"]+)"/);
       if (originalQueryMatch) {
         const originalQuery = originalQueryMatch[1];
-        if (intentType === "show_listings") {
+        if (isConfirmation && confirmationContext) {
+          const centralMatch = confirmationContext.match(/focus on (central|center|downtown|city cent[re])/i);
+          const cheaperMatch = confirmationContext.match(/cheaper|lower price|less expensive/i);
+          const largerMatch = confirmationContext.match(/larger|bigger|more space/i);
+          if (centralMatch) {
+            searchQuery = `${originalQuery} central city center downtown`;
+            console.log(`[Chat] Confirmation: User confirmed central location search for "${searchQuery}"`);
+          } else if (cheaperMatch) {
+            searchQuery = `${originalQuery} cheaper`;
+            console.log(`[Chat] Confirmation: User confirmed cheaper search for "${searchQuery}"`);
+          } else if (largerMatch) {
+            searchQuery = `${originalQuery} larger`;
+            console.log(`[Chat] Confirmation: User confirmed larger search for "${searchQuery}"`);
+          } else {
+            searchQuery = originalQuery;
+            console.log(`[Chat] Confirmation: Re-running original search for "${searchQuery}"`);
+          }
+        } else if (intentType === "show_listings" || isConfirmation) {
           searchQuery = originalQuery;
           console.log(`[Chat] show_listings: Re-running search for "${searchQuery}"`);
         } else {

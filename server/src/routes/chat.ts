@@ -130,6 +130,7 @@ router.post("/chat", async (req, res) => {
     // Determine intent - either use specified mode or auto-detect
     let shouldSearch = mode === "search";
     let intentType: "search" | "conversation" | "follow_up" | "refine_search" | "show_listings" = "search";
+    let confirmationContext: string | undefined;
     
     if (mode === "auto") {
       t0 = Date.now();
@@ -137,6 +138,7 @@ router.post("/chat", async (req, res) => {
       const intent = await detectIntent(message, aiHistory, hasRecentResults);
       timings.intentDetection = Date.now() - t0;
       intentType = intent.intent;
+      confirmationContext = intent.confirmationContext;
       // Trigger search for: search, refine_search, OR show_listings intents
       shouldSearch = intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings";
     } else if (mode === "chat") {
@@ -191,19 +193,43 @@ router.post("/chat", async (req, res) => {
     // Simple search mode - parse query and perform search
     let searchQuery = message;
     
+    // Check if this is a confirmation response (yes, sure, etc.)
+    const isConfirmation = /^(yes|yeah|yep|yup|sure|please|ok|okay|go ahead|do it|definitely|absolutely|of course|please do|yes please)\.?$/i.test(message.trim());
+    
     // For show_listings or refine_search intents, extract the original query from context
     if ((intentType === "show_listings" || intentType === "refine_search") && lastSearchContext) {
       // Extract original query from context like: 'User searched for: "gaia porto properties".'
       const originalQueryMatch = lastSearchContext.match(/User searched for: "([^"]+)"/);
       if (originalQueryMatch) {
         const originalQuery = originalQueryMatch[1];
-        // Combine original query with refinement
-        if (intentType === "show_listings") {
-          // For "show me the best ones", use the original query
+        
+        if (isConfirmation && confirmationContext) {
+          // User confirmed a refinement suggestion - extract what they were asked
+          // e.g., "Would you like me to try searching again with a focus on central locations?"
+          const centralMatch = confirmationContext.match(/focus on (central|center|downtown|city cent[re])/i);
+          const cheaperMatch = confirmationContext.match(/cheaper|lower price|less expensive/i);
+          const largerMatch = confirmationContext.match(/larger|bigger|more space/i);
+          
+          if (centralMatch) {
+            searchQuery = `${originalQuery} central city center downtown`;
+            console.log(`[Chat] Confirmation: User confirmed central location search for "${searchQuery}"`);
+          } else if (cheaperMatch) {
+            searchQuery = `${originalQuery} cheaper`;
+            console.log(`[Chat] Confirmation: User confirmed cheaper search for "${searchQuery}"`);
+          } else if (largerMatch) {
+            searchQuery = `${originalQuery} larger`;
+            console.log(`[Chat] Confirmation: User confirmed larger search for "${searchQuery}"`);
+          } else {
+            // Generic refinement - just re-run the original query
+            searchQuery = originalQuery;
+            console.log(`[Chat] Confirmation: Re-running original search for "${searchQuery}"`);
+          }
+        } else if (intentType === "show_listings" || isConfirmation) {
+          // For "show me the best ones" or plain confirmation, use the original query
           searchQuery = originalQuery;
           console.log(`[Chat] show_listings: Re-running search for "${searchQuery}"`);
         } else {
-          // For refinements like "cheaper", combine with original
+          // For refinements like "cheaper", combine with original (but not "yes")
           searchQuery = `${originalQuery} ${message}`;
           console.log(`[Chat] refine_search: Combined query "${searchQuery}"`);
         }

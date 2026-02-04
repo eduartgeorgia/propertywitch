@@ -691,9 +691,35 @@ export const detectIntent = async (
   message: string,
   conversationHistory?: AIMessage[],
   hasRecentResults?: boolean
-): Promise<{ intent: UserIntent; isPropertySearch: boolean }> => {
+): Promise<{ intent: UserIntent; isPropertySearch: boolean; confirmationContext?: string }> => {
   const health = await checkAIHealth();
-  const lower = message.toLowerCase();
+  const lower = message.toLowerCase().trim();
+
+  // Handle confirmation responses (yes, yeah, sure, please, ok) - these need conversation context
+  const confirmationPatterns = /^(yes|yeah|yep|yup|sure|please|ok|okay|go ahead|do it|definitely|absolutely|of course|please do|yes please)\.?$/i;
+  if (confirmationPatterns.test(lower)) {
+    // Check the last assistant message to understand what the user is confirming
+    if (conversationHistory && conversationHistory.length > 0) {
+      const lastAssistantMsg = [...conversationHistory].reverse().find(m => m.role === 'assistant');
+      if (lastAssistantMsg) {
+        const assistantLower = lastAssistantMsg.content.toLowerCase();
+        // Check if assistant asked about searching/refining
+        if (assistantLower.includes('search again') || 
+            assistantLower.includes('try searching') ||
+            assistantLower.includes('refine your search') ||
+            assistantLower.includes('would you like me to') ||
+            assistantLower.includes('shall i search') ||
+            assistantLower.includes('want me to search') ||
+            assistantLower.includes('focus on central') ||
+            assistantLower.includes('narrow down')) {
+          // User is confirming a search refinement request
+          return { intent: "refine_search", isPropertySearch: true, confirmationContext: lastAssistantMsg.content };
+        }
+      }
+    }
+    // If we can't determine context, treat as follow-up conversation
+    return { intent: "follow_up", isPropertySearch: false };
+  }
 
   // Quick regex-based detection for obvious cases
   const searchIndicators = [
