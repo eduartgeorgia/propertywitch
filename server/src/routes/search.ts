@@ -5,13 +5,13 @@ import { runSearch } from "../services/searchService";
 const router = Router();
 
 const searchSchema = z.object({
-  query: z.string().optional(),
+  query: z.string().min(3),
   userLocation: z.object({
-    label: z.string().optional(),
-    lat: z.number().optional(),
-    lng: z.number().optional(),
-    currency: z.string().optional(),
-  }).optional(),
+    label: z.string().min(2),
+    lat: z.number(),
+    lng: z.number(),
+    currency: z.string().min(3),
+  }),
 });
 
 router.post("/search", async (req, res) => {
