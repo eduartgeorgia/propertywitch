@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+server/dist/
+web/dist/
+
+# Environment files
+.env
+.env.local
+
+# Logs
+logs/*.log
+*.log
+
+# Browser data (Chrome profile)
+server/browser-data/
+
+# IDE
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Deploy folder (local deployment artifacts)
+deploy/
+
+# Reports (generated)
+reports/*.json
+Archive.zip

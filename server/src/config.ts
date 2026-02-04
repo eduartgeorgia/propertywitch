@@ -1,0 +1,40 @@
+import { config as loadEnv } from "dotenv";
+import path from "node:path";
+
+loadEnv();
+
+const projectRoot = process.cwd();
+
+const toBool = (value: string | undefined, fallback: boolean) => {
+  if (value === undefined) return fallback;
+  return value === "1" || value.toLowerCase() === "true";
+};
+
+export const APP_CONFIG = {
+  port: Number(process.env.PORT ?? 4000),
+  mockData: toBool(process.env.MOCK_DATA, false), // Use real OLX API data
+  reportsDir: path.resolve(projectRoot, process.env.REPORTS_DIR ?? "reports"),
+};
+
+export const MATCH_RULES = {
+  exactTolerancePercent: 0.02,
+  exactToleranceAbsoluteEur: 50,
+  nearMissTolerancePercent: 0.1,
+  nearMissToleranceAbsoluteEur: 200,
+  strictRadiusKm: 50,
+  nearMissRadiusKm: 50,
+};
+
+export const FX_RATES = {
+  USD_EUR: Number(process.env.FX_RATE_USD_EUR ?? 0.92),
+  GBP_EUR: Number(process.env.FX_RATE_GBP_EUR ?? 1.17),
+};
+
+export const SITE_ORDER = [
+  "idealista",
+  "kyero",
+  "supercasa",
+  "pureportugal",
+  "imovirtual",
+  "olx",
+];
