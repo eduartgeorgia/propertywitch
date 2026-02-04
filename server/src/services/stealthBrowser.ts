@@ -5,13 +5,16 @@
  * Maintains persistent sessions with cookies to appear as a returning user.
  */
 
-import puppeteer from "puppeteer-extra";
+// @ts-ignore - puppeteer-extra has typing issues
+import puppeteerExtra from "puppeteer-extra";
+// @ts-ignore
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page } from "puppeteer";
 import path from "node:path";
 import fs from "node:fs";
 
 // Apply stealth plugin
+const puppeteer = puppeteerExtra.default || puppeteerExtra;
 puppeteer.use(StealthPlugin());
 
 const USER_DATA_DIR = path.resolve(process.cwd(), "browser-data");
