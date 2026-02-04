@@ -2,7 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { APP_CONFIG } from "../config";
 import { slugify } from "../utils/slug";
-import { getBrowser, createStealthPage, humanDelay, closeBrowser } from "./stealthBrowser";
+// Browser service is stubbed for cloud deployment
+// import { getBrowser, createStealthPage, humanDelay, closeBrowser } from "./stealthBrowser";
 
 // Extended listing type with AI analysis for reports
 export type ReportListing = {
@@ -34,11 +35,14 @@ export const buildPdfFilename = (title: string, index: number): string => {
 };
 
 // Generate PDF directly from a listing page URL using Puppeteer
+// DISABLED for cloud deployment - browser not available
 export async function generateListingPagePdf(
   url: string, 
   title: string, 
   index: number
 ): Promise<{ filename: string; pdfBuffer: Buffer }> {
+  throw new Error("PDF generation is not available in cloud deployment. Browser scraping is disabled.");
+  /*
   const browser = await getBrowser();
   const page = await createStealthPage(browser);
   
@@ -120,12 +124,19 @@ export async function generateListingPagePdf(
       await page.close(); 
     } catch (e) {}
   }
+  */
 }
 
+// Stub for closeBrowser
+const closeBrowser = async () => {};
+
 // Generate PDFs for multiple listings
+// DISABLED for cloud deployment
 export async function generateMultipleListingPdfs(
   listings: ReportListing[]
 ): Promise<{ filename: string; pdfBuffer: Buffer }[]> {
+  throw new Error("PDF generation is not available in cloud deployment.");
+  /*
   await ensureReportsDir();
   
   const results: { filename: string; pdfBuffer: Buffer }[] = [];
@@ -154,6 +165,7 @@ export async function generateMultipleListingPdfs(
   }
   
   return results;
+  */
 }
 
 // Save PDF to disk and return the filename

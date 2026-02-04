@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { runAgent, shouldUseAgent } from "../services/agentService";
+import type { UserLocation } from "../types/api";
 
 const router = Router();
 
@@ -24,7 +25,8 @@ router.post("/agent", async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  const { query, userLocation, maxSteps } = parsed.data;
+  const { query, maxSteps } = parsed.data;
+  const userLocation = parsed.data.userLocation as UserLocation;
 
   try {
     console.log(`[Agent Route] Processing: "${query}"`);

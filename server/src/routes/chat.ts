@@ -15,6 +15,7 @@ import {
 } from "../services/aiService";
 import { runSearch } from "../services/searchService";
 import { runAgent, shouldUseAgent } from "../services/agentService";
+import type { UserLocation } from "../types/api";
 
 const router = Router();
 
@@ -108,7 +109,8 @@ router.post("/chat", async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  const { message, userLocation, mode, conversationHistory, lastSearchContext } = parsed.data;
+  const { message, mode, conversationHistory, lastSearchContext } = parsed.data;
+  const userLocation = parsed.data.userLocation as UserLocation;
   
   // Use provided conversation ID or generate a new one
   const conversationId = parsed.data.conversationId || generateConversationId();
