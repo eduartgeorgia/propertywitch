@@ -76,29 +76,14 @@ async function searchOLX(query, maxListings = 40) {
     }
   }
   
-  // Determine category
-  let category = 16; // Default: all real estate
-  if (queryLower.includes('land') || queryLower.includes('terreno') || queryLower.includes('plot')) {
-    category = 4795;
-  } else if (queryLower.includes('apartment') || queryLower.includes('apartamento') || queryLower.includes('flat')) {
-    category = 1723; // Apartments for sale
-  } else if (queryLower.includes('house') || queryLower.includes('moradia') || queryLower.includes('villa')) {
-    category = 1724; // Houses for sale
-  }
-  
   try {
-    // Build OLX API URL
-    let url = `https://www.olx.pt/api/v1/offers/?offset=0&limit=${maxListings}&category_id=${category}&sort_by=created_at:desc`;
+    // Use category 16 (all real estate) - it works reliably
+    let url = `https://www.olx.pt/api/v1/offers/?offset=0&limit=${maxListings}&category_id=16&sort_by=created_at:desc`;
     
     if (regionId) {
       url += `&region_id=${regionId}`;
     }
-    if (minPrice) {
-      url += `&filter_float_price:from=${minPrice}`;
-    }
-    if (maxPrice) {
-      url += `&filter_float_price:to=${maxPrice}`;
-    }
+    // Note: price filters may not work with API, we filter client-side
     
     console.log(`[OLX] Fetching: ${url}`);
     
@@ -118,13 +103,37 @@ async function searchOLX(query, maxListings = 40) {
     
     for (const item of (data.data || [])) {
       const price = item.params?.find(p => p.key === 'price')?.value?.value || 0;
+      const priceNum = parseInt(price) || 0;
+      
+      // Client-side price filtering
+      if (minPrice && priceNum < minPrice) continue;
+      if (maxPrice && priceNum > maxPrice) continue;
+      
+      // Filter by property type from title/description
+      const title = (item.title || '').toLowerCase();
+      if (queryLower.includes('apartment') || queryLower.includes('apartamento')) {
+        if (!title.includes('apartamento') && !title.includes('t1') && !title.includes('t2') && !title.includes('t3') && !title.includes('t4')) {
+          continue;
+        }
+      }
+      if (queryLower.includes('house') || queryLower.includes('moradia') || queryLower.includes('villa')) {
+        if (!title.includes('moradia') && !title.includes('vivenda') && !title.includes('casa') && !title.includes('villa')) {
+          continue;
+        }
+      }
+      if (queryLower.includes('land') || queryLower.includes('terreno')) {
+        if (!title.includes('terreno') && !title.includes('lote')) {
+          continue;
+        }
+      }
+      
       const photo = item.photos?.[0]?.link?.replace('{width}', '400').replace('{height}', '300');
       
       listings.push({
         id: `olx-${item.id}`,
         title: item.title || 'Property',
-        priceEur: parseInt(price) || 0,
-        displayPrice: `€${parseInt(price).toLocaleString()}`,
+        priceEur: priceNum,
+        displayPrice: `€${priceNum.toLocaleString()}`,
         locationLabel: item.location?.city?.name || item.location?.region?.name || 'Portugal',
         beds: item.params?.find(p => p.key === 'rooms')?.value?.key,
         baths: item.params?.find(p => p.key === 'bathrooms')?.value?.key,
@@ -134,9 +143,11 @@ async function searchOLX(query, maxListings = 40) {
         sourceUrl: item.url || `https://www.olx.pt/d/anuncio/${item.id}`,
         matchScore: 80,
       });
+      
+      if (listings.length >= 20) break; // Limit results
     }
     
-    console.log(`[OLX] Found ${listings.length} listings`);
+    console.log(`[OLX] Found ${listings.length} listings after filtering`);
     
   } catch (error) {
     console.error('[OLX] Error:', error.message);
