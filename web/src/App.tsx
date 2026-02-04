@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import type { ListingCard, SearchResponse } from "./types";
+import type { ListingCard, SearchResponse, ChatThread } from "./types";
 
 // API base URL - configurable for production deployment
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
@@ -147,6 +147,12 @@ const App = () => {
   // Quick Look state
   const [quickLookListing, setQuickLookListing] = useState<ListingCard | null>(null);
   
+  // Chat threads state
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [loadingThreads, setLoadingThreads] = useState(false);
+  
   // AbortController for cancelling requests
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -204,6 +210,102 @@ const App = () => {
     // Poll every 30 seconds to detect backend changes
     const interval = setInterval(() => checkHealth(false), 30000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Fetch threads list
+  const fetchThreads = useCallback(async () => {
+    try {
+      const res = await fetchWithRetry("/api/threads", {}, 2, 1000);
+      const data = await res.json();
+      setThreads(data.threads || []);
+    } catch (error) {
+      console.error("Failed to fetch threads:", error);
+    }
+  }, []);
+
+  // Create a new thread
+  const createNewThread = useCallback(async () => {
+    setLoadingThreads(true);
+    try {
+      const res = await fetchWithRetry("/api/threads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }, 2, 1000);
+      const data = await res.json();
+      
+      setCurrentThreadId(data.id);
+      setMessages([{
+        role: "assistant",
+        text: "🧙‍♀️ Hi! I'm your AI Property Witch. Tell me what you're looking for in Portugal and I'll conjure up the listings for you. You can also ask me questions about the results or Portuguese real estate in general.",
+        type: "chat",
+      }]);
+      setSearchResponse(null);
+      setLastSearchContext(null);
+      
+      // Refresh threads list
+      await fetchThreads();
+    } catch (error) {
+      console.error("Failed to create thread:", error);
+    } finally {
+      setLoadingThreads(false);
+    }
+  }, [fetchThreads]);
+
+  // Load a specific thread
+  const loadThread = useCallback(async (threadId: string) => {
+    setLoadingThreads(true);
+    try {
+      const res = await fetchWithRetry(`/api/threads/${threadId}`, {}, 2, 1000);
+      const data = await res.json();
+      
+      setCurrentThreadId(threadId);
+      setMessages(data.messages.map((m: { role: "user" | "assistant"; content: string; type?: string }) => ({
+        role: m.role,
+        text: m.content,
+        type: m.type || "chat",
+      })));
+      setLastSearchContext(data.lastSearchContext || null);
+      setSearchResponse(null); // Clear current search results
+    } catch (error) {
+      console.error("Failed to load thread:", error);
+    } finally {
+      setLoadingThreads(false);
+    }
+  }, []);
+
+  // Delete a thread
+  const deleteThread = useCallback(async (threadId: string) => {
+    try {
+      await fetchWithRetry(`/api/threads/${threadId}`, { method: "DELETE" }, 2, 1000);
+      
+      // If we deleted the current thread, create a new one
+      if (threadId === currentThreadId) {
+        await createNewThread();
+      }
+      
+      // Refresh threads list
+      await fetchThreads();
+    } catch (error) {
+      console.error("Failed to delete thread:", error);
+    }
+  }, [currentThreadId, createNewThread, fetchThreads]);
+
+  // Initialize threads on mount
+  useEffect(() => {
+    const initThreads = async () => {
+      await fetchThreads();
+      // Create a new thread if none exist
+      const res = await fetchWithRetry("/api/threads", {}, 2, 1000);
+      const data = await res.json();
+      if (!data.threads || data.threads.length === 0) {
+        await createNewThread();
+      } else {
+        // Load the most recent thread
+        await loadThread(data.threads[0].id);
+      }
+    };
+    initThreads();
   }, []);
 
   // Fetch available backends
@@ -347,6 +449,7 @@ const App = () => {
 
     const payload = {
       message: messageWithContext,
+      threadId: currentThreadId || undefined, // Include thread ID for persistent memory
       userLocation: {
         label: locationLabel,
         lat: userLat,
@@ -386,6 +489,9 @@ const App = () => {
       if (data.searchContext) {
         setLastSearchContext(data.searchContext);
       }
+      
+      // Refresh threads list to update sidebar
+      fetchThreads();
 
       if (data.type === "clarification") {
         // AI needs more info
@@ -600,7 +706,72 @@ const App = () => {
   };
 
   return (
-    <div className="app">
+    <div className={`app ${showSidebar ? 'with-sidebar' : ''}`}>
+      {/* Chat Threads Sidebar */}
+      <aside className={`threads-sidebar ${showSidebar ? 'open' : ''}`}>
+        <div className="sidebar-header">
+          <h3>💬 Chats</h3>
+          <button 
+            className="new-chat-btn"
+            onClick={createNewThread}
+            disabled={loadingThreads}
+            title="Start a new chat"
+          >
+            + New Chat
+          </button>
+        </div>
+        <div className="threads-list">
+          {threads.map((thread) => (
+            <div 
+              key={thread.id}
+              className={`thread-item ${thread.id === currentThreadId ? 'active' : ''}`}
+              onClick={() => loadThread(thread.id)}
+            >
+              <div className="thread-info">
+                <span className="thread-title">{thread.title}</span>
+                <span className="thread-meta">
+                  {thread.messageCount} messages · {new Date(thread.updatedAt).toLocaleDateString()}
+                </span>
+              </div>
+              <button
+                className="delete-thread-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (confirm('Delete this chat?')) {
+                    deleteThread(thread.id);
+                  }
+                }}
+                title="Delete chat"
+              >
+                🗑️
+              </button>
+            </div>
+          ))}
+          {threads.length === 0 && (
+            <p className="no-threads">No chat history yet</p>
+          )}
+        </div>
+        <button 
+          className="toggle-sidebar-btn inside"
+          onClick={() => setShowSidebar(false)}
+          title="Hide sidebar"
+        >
+          ◀
+        </button>
+      </aside>
+      
+      {/* Toggle button when sidebar is hidden */}
+      {!showSidebar && (
+        <button 
+          className="toggle-sidebar-btn outside"
+          onClick={() => setShowSidebar(true)}
+          title="Show chat history"
+        >
+          💬
+        </button>
+      )}
+      
+      <main className="main-content">
       <header className="header">
         <div>
           <p className="eyebrow">Portugal Listings</p>
@@ -1083,6 +1254,7 @@ const App = () => {
           </div>
         </div>
       )}
+      </main>
     </div>
   );
 };

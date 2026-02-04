@@ -8,6 +8,7 @@
   --ink: #1f2421;
   --mint: #c7e3d4;
   --white: #ffffff;
+  --sidebar-width: 280px;
 }
 
 * {
@@ -23,9 +24,185 @@ body {
 
 .app {
   min-height: 100vh;
-  padding: 32px 48px 48px;
   background-image: linear-gradient(120deg, rgba(47, 74, 58, 0.08), rgba(184, 107, 75, 0.08));
+  display: flex;
 }
+
+.app.with-sidebar .main-content {
+  margin-left: var(--sidebar-width);
+}
+
+.main-content {
+  flex: 1;
+  padding: 32px 48px 48px;
+  transition: margin-left 0.3s ease;
+}
+
+/* Chat Threads Sidebar */
+.threads-sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: var(--sidebar-width);
+  height: 100vh;
+  background: var(--white);
+  box-shadow: 2px 0 20px rgba(31, 36, 33, 0.1);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.threads-sidebar.open {
+  transform: translateX(0);
+}
+
+.sidebar-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--clay);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--forest);
+}
+
+.new-chat-btn {
+  background: var(--forest);
+  color: var(--white);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.new-chat-btn:hover {
+  background: var(--ember);
+  transform: translateY(-1px);
+}
+
+.new-chat-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.threads-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.thread-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--sand);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.thread-item:hover {
+  background: var(--clay);
+}
+
+.thread-item.active {
+  background: var(--mint);
+  border-left: 3px solid var(--forest);
+}
+
+.thread-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.thread-title {
+  display: block;
+  font-weight: 500;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.thread-meta {
+  font-size: 11px;
+  color: #6c6b63;
+}
+
+.delete-thread-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+  padding: 4px;
+}
+
+.thread-item:hover .delete-thread-btn {
+  opacity: 0.6;
+}
+
+.delete-thread-btn:hover {
+  opacity: 1 !important;
+}
+
+.no-threads {
+  text-align: center;
+  color: #6c6b63;
+  font-size: 13px;
+  padding: 20px;
+}
+
+.toggle-sidebar-btn {
+  background: var(--white);
+  border: 1px solid var(--clay);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.toggle-sidebar-btn.inside {
+  position: absolute;
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 48px;
+  border-radius: 0 8px 8px 0;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+}
+
+.toggle-sidebar-btn.outside {
+  position: fixed;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  z-index: 99;
+}
+
+.toggle-sidebar-btn:hover {
+  background: var(--mint);
+  border-color: var(--forest);
+}
+
+/* End Sidebar Styles */
 
 .header {
   display: flex;

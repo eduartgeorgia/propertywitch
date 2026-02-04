@@ -35,3 +35,19 @@ export type SearchResponse = {
     reason: string;
   }>;
 };
+
+export type ChatThread = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  lastMessage?: string;
+};
+
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+  type?: "search" | "chat" | "clarification" | "agent";
+};

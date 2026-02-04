@@ -16,6 +16,12 @@ import {
 import { runSearch } from "../services/searchService";
 import { runAgent, shouldUseAgent } from "../services/agentService";
 import type { UserLocation } from "../types/api";
+import {
+  getThread,
+  addMessage,
+  getConversationHistory,
+  getLastSearchContext as getThreadSearchContext,
+} from "../services/threadService";
 
 const router = Router();
 
@@ -78,6 +84,7 @@ function generateConversationId(): string {
 const chatSchema = z.object({
   message: z.string().min(1),
   conversationId: z.string().optional(),
+  threadId: z.string().optional(), // New: thread ID for persistent memory
   userLocation: z.object({
     label: z.string().min(2),
     lat: z.number(),
@@ -109,11 +116,27 @@ router.post("/chat", async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  const { message, mode, conversationHistory, lastSearchContext } = parsed.data;
+  const { message, mode, threadId } = parsed.data;
+  let { conversationHistory, lastSearchContext } = parsed.data;
   const userLocation = parsed.data.userLocation as UserLocation;
   
   // Use provided conversation ID or generate a new one
   const conversationId = parsed.data.conversationId || generateConversationId();
+
+  // If threadId is provided, use thread-based memory
+  if (threadId) {
+    const thread = getThread(threadId);
+    if (thread) {
+      // Override with thread's conversation history (last 20 messages)
+      conversationHistory = getConversationHistory(threadId, 20);
+      // Override with thread's last search context
+      lastSearchContext = getThreadSearchContext(threadId) || lastSearchContext;
+      console.log(`[Chat] Using thread ${threadId} with ${conversationHistory.length} messages`);
+    }
+    
+    // Store the user message in the thread
+    addMessage(threadId, "user", message);
+  }
 
   try {
     // Check AI health
@@ -153,11 +176,18 @@ router.post("/chat", async (req, res) => {
       timings.chatAI = Date.now() - t0;
       timings.total = Date.now() - requestStart;
       console.log(`[Chat] Timings:`, timings);
+      
+      // Store assistant response in thread
+      if (threadId) {
+        addMessage(threadId, "assistant", response, "chat");
+      }
+      
       return res.json({
         type: "chat",
         intentDetected: intentType,
         message: response,
         conversationId,
+        threadId,
         aiAvailable: health.available,
         aiBackend: health.backend,
         _timings: timings,
@@ -175,6 +205,13 @@ router.post("/chat", async (req, res) => {
       timings.total = Date.now() - requestStart;
       console.log(`[Chat] Timings:`, timings);
       
+      const searchContext = `Agent processed: "${message}". Tools used: ${agentResult.toolsUsed.join(', ')}. ${agentResult.reasoning}`;
+      
+      // Store agent response in thread
+      if (threadId) {
+        addMessage(threadId, "assistant", agentResult.finalAnswer, "agent", searchContext);
+      }
+      
       return res.json({
         type: "agent",
         intentDetected: "agent",
@@ -183,7 +220,8 @@ router.post("/chat", async (req, res) => {
         toolsUsed: agentResult.toolsUsed,
         stepsCount: agentResult.steps.length,
         searchResult: agentResult.searchResults,
-        searchContext: `Agent processed: "${message}". Tools used: ${agentResult.toolsUsed.join(', ')}. ${agentResult.reasoning}`,
+        searchContext,
+        threadId,
         aiAvailable: health.available,
         aiBackend: health.backend,
         _timings: timings,
@@ -285,6 +323,11 @@ router.post("/chat", async (req, res) => {
       `Price range: €${searchResult.appliedPriceRange.min ?? 0} - €${searchResult.appliedPriceRange.max ?? 'any'}. ` +
       `Locations: ${locations.slice(0, 5).join(", ") || "Various Portugal"}.`;
 
+    // Store search response in thread
+    if (threadId) {
+      addMessage(threadId, "assistant", aiSummary, "search", searchContext);
+    }
+
     timings.total = Date.now() - requestStart;
     console.log(`[Chat] Timings:`, timings);
 
@@ -296,6 +339,7 @@ router.post("/chat", async (req, res) => {
       searchResult,
       suggestions,
       searchContext,
+      threadId,
       aiAvailable: health.available,
       aiBackend: health.backend,
       _timings: timings,

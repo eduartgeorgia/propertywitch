@@ -22,7 +22,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/index.ts
-var import_express9 = __toESM(require("express"));
+var import_express10 = __toESM(require("express"));
 var import_cors = __toESM(require("cors"));
 var import_node_path4 = __toESM(require("node:path"));
 
@@ -3564,6 +3564,85 @@ function shouldUseAgent(query) {
   return complexPatterns.some((pattern) => pattern.test(query));
 }
 
+// src/services/threadService.ts
+var threads = /* @__PURE__ */ new Map();
+function generateThreadId() {
+  return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+function generateTitle(message) {
+  const firstSentence = message.split(/[.!?]/)[0];
+  const title = firstSentence.length > 40 ? firstSentence.slice(0, 40) + "..." : firstSentence;
+  return title || "New conversation";
+}
+function createThread(initialMessage) {
+  const id = generateThreadId();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const thread = {
+    id,
+    title: initialMessage ? generateTitle(initialMessage) : "New conversation",
+    createdAt: now,
+    updatedAt: now,
+    messages: []
+  };
+  thread.messages.push({
+    role: "assistant",
+    content: "\u{1F9D9}\u200D\u2640\uFE0F Hi! I'm your AI Property Witch. Tell me what you're looking for in Portugal and I'll conjure up the listings for you. You can also ask me questions about the results or Portuguese real estate in general.",
+    timestamp: now,
+    type: "chat"
+  });
+  threads.set(id, thread);
+  console.log(`[Threads] Created new thread: ${id}`);
+  return thread;
+}
+function getThread(threadId) {
+  return threads.get(threadId) || null;
+}
+function getAllThreads() {
+  return Array.from(threads.values()).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+function addMessage(threadId, role, content, type, searchContext) {
+  const thread = threads.get(threadId);
+  if (!thread) return null;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  thread.messages.push({
+    role,
+    content,
+    timestamp: now,
+    type,
+    searchContext
+  });
+  thread.updatedAt = now;
+  if (role === "user" && thread.messages.filter((m) => m.role === "user").length === 1) {
+    thread.title = generateTitle(content);
+  }
+  if (searchContext) {
+    thread.lastSearchContext = searchContext;
+  }
+  return thread;
+}
+function getConversationHistory(threadId, limit = 20) {
+  const thread = threads.get(threadId);
+  if (!thread) return [];
+  return thread.messages.slice(-limit).map((m) => ({ role: m.role, content: m.content }));
+}
+function getLastSearchContext(threadId) {
+  const thread = threads.get(threadId);
+  return thread?.lastSearchContext || null;
+}
+function deleteThread(threadId) {
+  return threads.delete(threadId);
+}
+function updateThreadTitle(threadId, title) {
+  const thread = threads.get(threadId);
+  if (!thread) return null;
+  thread.title = title;
+  thread.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  return thread;
+}
+function getThreadCount() {
+  return threads.size;
+}
+
 // src/routes/chat.ts
 var router4 = (0, import_express4.Router)();
 function generateRefinementSuggestions(intent, listingsCount, matchType) {
@@ -3608,6 +3687,8 @@ function generateConversationId() {
 var chatSchema = import_zod3.z.object({
   message: import_zod3.z.string().min(1),
   conversationId: import_zod3.z.string().optional(),
+  threadId: import_zod3.z.string().optional(),
+  // New: thread ID for persistent memory
   userLocation: import_zod3.z.object({
     label: import_zod3.z.string().min(2),
     lat: import_zod3.z.number(),
@@ -3628,9 +3709,19 @@ router4.post("/chat", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { message, mode, conversationHistory, lastSearchContext } = parsed.data;
+  const { message, mode, threadId } = parsed.data;
+  let { conversationHistory, lastSearchContext } = parsed.data;
   const userLocation = parsed.data.userLocation;
   const conversationId = parsed.data.conversationId || generateConversationId();
+  if (threadId) {
+    const thread = getThread(threadId);
+    if (thread) {
+      conversationHistory = getConversationHistory(threadId, 20);
+      lastSearchContext = getLastSearchContext(threadId) || lastSearchContext;
+      console.log(`[Chat] Using thread ${threadId} with ${conversationHistory.length} messages`);
+    }
+    addMessage(threadId, "user", message);
+  }
   try {
     let t0 = Date.now();
     const health = await checkAIHealth();
@@ -3660,11 +3751,15 @@ router4.post("/chat", async (req, res) => {
       timings.chatAI = Date.now() - t0;
       timings.total = Date.now() - requestStart;
       console.log(`[Chat] Timings:`, timings);
+      if (threadId) {
+        addMessage(threadId, "assistant", response, "chat");
+      }
       return res.json({
         type: "chat",
         intentDetected: intentType,
         message: response,
         conversationId,
+        threadId,
         aiAvailable: health.available,
         aiBackend: health.backend,
         _timings: timings
@@ -3678,6 +3773,10 @@ router4.post("/chat", async (req, res) => {
       timings.agent = Date.now() - t0;
       timings.total = Date.now() - requestStart;
       console.log(`[Chat] Timings:`, timings);
+      const searchContext2 = `Agent processed: "${message}". Tools used: ${agentResult.toolsUsed.join(", ")}. ${agentResult.reasoning}`;
+      if (threadId) {
+        addMessage(threadId, "assistant", agentResult.finalAnswer, "agent", searchContext2);
+      }
       return res.json({
         type: "agent",
         intentDetected: "agent",
@@ -3686,7 +3785,8 @@ router4.post("/chat", async (req, res) => {
         toolsUsed: agentResult.toolsUsed,
         stepsCount: agentResult.steps.length,
         searchResult: agentResult.searchResults,
-        searchContext: `Agent processed: "${message}". Tools used: ${agentResult.toolsUsed.join(", ")}. ${agentResult.reasoning}`,
+        searchContext: searchContext2,
+        threadId,
         aiAvailable: health.available,
         aiBackend: health.backend,
         _timings: timings
@@ -3760,6 +3860,9 @@ router4.post("/chat", async (req, res) => {
       searchResult.matchType
     );
     const searchContext = `User searched for: "${searchQuery}". Found ${searchResult.listings.length} listings (${searchResult.matchType} match). Price range: \u20AC${searchResult.appliedPriceRange.min ?? 0} - \u20AC${searchResult.appliedPriceRange.max ?? "any"}. Locations: ${locations.slice(0, 5).join(", ") || "Various Portugal"}.`;
+    if (threadId) {
+      addMessage(threadId, "assistant", aiSummary, "search", searchContext);
+    }
     timings.total = Date.now() - requestStart;
     console.log(`[Chat] Timings:`, timings);
     return res.json({
@@ -3770,6 +3873,7 @@ router4.post("/chat", async (req, res) => {
       searchResult,
       suggestions,
       searchContext,
+      threadId,
       aiAvailable: health.available,
       aiBackend: health.backend,
       _timings: timings
@@ -4618,10 +4722,108 @@ router8.post("/bulk-index", async (req, res) => {
 });
 var index_listings_default = router8;
 
+// src/routes/threads.ts
+var import_express9 = require("express");
+var router9 = (0, import_express9.Router)();
+router9.get("/threads", (_req, res) => {
+  try {
+    const threads2 = getAllThreads();
+    const summary = threads2.map((t) => ({
+      id: t.id,
+      title: t.title,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      messageCount: t.messages.length,
+      lastMessage: t.messages.length > 0 ? t.messages[t.messages.length - 1].content.slice(0, 100) : null
+    }));
+    return res.json({ threads: summary, total: threads2.length });
+  } catch (error) {
+    console.error("Failed to get threads:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+router9.post("/threads", (req, res) => {
+  try {
+    const { initialMessage } = req.body;
+    const thread = createThread(initialMessage);
+    return res.json({
+      id: thread.id,
+      title: thread.title,
+      createdAt: thread.createdAt,
+      messages: thread.messages
+    });
+  } catch (error) {
+    console.error("Failed to create thread:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+router9.get("/threads/:threadId", (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const thread = getThread(threadId);
+    if (!thread) {
+      return res.status(404).json({ error: "Thread not found" });
+    }
+    return res.json(thread);
+  } catch (error) {
+    console.error("Failed to get thread:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+router9.delete("/threads/:threadId", (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const deleted = deleteThread(threadId);
+    if (!deleted) {
+      return res.status(404).json({ error: "Thread not found" });
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete thread:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+router9.patch("/threads/:threadId", (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const { title } = req.body;
+    if (!title) {
+      return res.status(400).json({ error: "Title is required" });
+    }
+    const thread = updateThreadTitle(threadId, title);
+    if (!thread) {
+      return res.status(404).json({ error: "Thread not found" });
+    }
+    return res.json({
+      id: thread.id,
+      title: thread.title,
+      updatedAt: thread.updatedAt
+    });
+  } catch (error) {
+    console.error("Failed to update thread:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+router9.get("/threads-stats", (_req, res) => {
+  try {
+    const count = getThreadCount();
+    const threads2 = getAllThreads();
+    const totalMessages = threads2.reduce((sum, t) => sum + t.messages.length, 0);
+    return res.json({
+      threadCount: count,
+      totalMessages
+    });
+  } catch (error) {
+    console.error("Failed to get thread stats:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+var threads_default = router9;
+
 // src/index.ts
-var app = (0, import_express9.default)();
+var app = (0, import_express10.default)();
 app.use((0, import_cors.default)());
-app.use(import_express9.default.json({ limit: "2mb" }));
+app.use(import_express10.default.json({ limit: "2mb" }));
 app.use("/api", search_default);
 app.use("/api", report_default);
 app.use("/api", diagnostics_default);
@@ -4629,8 +4831,9 @@ app.use("/api", chat_default);
 app.use("/api", rag_default);
 app.use("/api", training_default);
 app.use("/api", agent_default);
+app.use("/api", threads_default);
 app.use("/api/index", index_listings_default);
-app.use("/reports", import_express9.default.static(import_node_path4.default.resolve(APP_CONFIG.reportsDir)));
+app.use("/reports", import_express10.default.static(import_node_path4.default.resolve(APP_CONFIG.reportsDir)));
 app.get("/", (_req, res) => {
   res.json({ status: "ok", name: "ai-property-assistant-server" });
 });

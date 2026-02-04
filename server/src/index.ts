@@ -10,6 +10,7 @@ import ragRouter from "./routes/rag";
 import trainingRouter from "./routes/training";
 import agentRouter from "./routes/agent";
 import indexListingsRouter from "./routes/index-listings";
+import threadsRouter from "./routes/threads";
 import { initializeRAG } from "./services/rag/index";
 
 const app = express();
@@ -24,6 +25,7 @@ app.use("/api", chatRouter);
 app.use("/api", ragRouter);
 app.use("/api", trainingRouter);
 app.use("/api", agentRouter);
+app.use("/api", threadsRouter);
 app.use("/api/index", indexListingsRouter);
 
 app.use("/reports", express.static(path.resolve(APP_CONFIG.reportsDir)));
