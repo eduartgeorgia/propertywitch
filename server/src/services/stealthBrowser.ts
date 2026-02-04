@@ -6,7 +6,7 @@
  */
 
 // @ts-ignore - puppeteer-extra has typing issues
-import puppeteerExtra from "puppeteer-extra";
+import puppeteer from "puppeteer-extra";
 // @ts-ignore
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page } from "puppeteer";
@@ -14,7 +14,7 @@ import path from "node:path";
 import fs from "node:fs";
 
 // Apply stealth plugin
-const puppeteer = puppeteerExtra.default || puppeteerExtra;
+// @ts-ignore
 puppeteer.use(StealthPlugin());
 
 const USER_DATA_DIR = path.resolve(process.cwd(), "browser-data");

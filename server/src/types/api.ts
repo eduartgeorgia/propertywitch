@@ -1,15 +1,15 @@
 import type { ListingCard } from "../domain/listing";
 
 export type UserLocation = {
-  label: string;
-  lat: number;
-  lng: number;
-  currency: string;
+  label?: string;
+  lat?: number;
+  lng?: number;
+  currency?: string;
 };
 
 export type SearchRequest = {
-  query: string;
-  userLocation: UserLocation;
+  query?: string;
+  userLocation?: UserLocation;
 };
 
 export type PriceRange = {
