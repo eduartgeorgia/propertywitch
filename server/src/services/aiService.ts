@@ -749,6 +749,9 @@ export const detectIntent = async (
     /(?:pick|select|choose|get|give me|show me)\s+(\d+|one|two|three|four|five|a few|some|the best|top)\s*(?:of them|from them|that|which|listings?|properties?|options?|ones?)?/i,
     /(?:pick|select|choose)\s+(?:the\s+)?(?:\d+|one|two|three|four|five)\s*(?:closest|nearest|cheapest|best|top)/i,
     /(?:the\s+)?(?:\d+|two|three)\s+(?:closest|nearest|cheapest|best)\s*(?:to|ones?)?/i,
+    /which\s+(?:one|ones?|listing|property|properties)\s+(?:is|are)\s+(?:closest|nearest|cheapest|best|biggest|smallest)/i,
+    /(?:closest|nearest|cheapest|best)\s+(?:one|to|option|listing|property)/i,
+    /sort\s+(?:by|them\s+by)\s+(?:distance|price|size|area)/i,
   ];
   
   // Check for pick/select intent when there are recent results

@@ -159,6 +159,18 @@ const App = () => {
   // Ref for auto-scrolling messages
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   
+  // Ref for auto-expanding textarea
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  
+  // Auto-resize textarea based on content
+  const autoResizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 150)}px`;
+    }
+  }, []);
+  
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -584,6 +596,10 @@ const App = () => {
       abortControllerRef.current = null;
       setIsLoading(false);
       setQuery("");
+      // Reset textarea height
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
     }
   };
 
@@ -909,18 +925,24 @@ const App = () => {
           </div>
 
           <div className="input-row">
-            <input
+            <textarea
+              ref={textareaRef}
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                autoResizeTextarea();
+              }}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !isLoading) {
+                if (event.key === "Enter" && !event.shiftKey && !isLoading) {
+                  event.preventDefault();
                   handleSearch();
                 }
                 if (event.key === "Escape" && isLoading) {
                   handleStop();
                 }
               }}
-              placeholder="e.g., Find me land under 30000 euros"
+              placeholder="e.g., Find me land under 30000 euros (Shift+Enter for new line)"
+              rows={1}
             />
             {isLoading ? (
               <button onClick={handleStop} className="stop-btn" title="Stop (Esc)">

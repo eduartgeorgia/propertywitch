@@ -569,6 +569,27 @@ body {
 .input-row {
   display: flex;
   gap: 10px;
+  align-items: flex-end;
+}
+
+.input-row textarea {
+  flex: 1;
+  border-radius: 12px;
+  border: 1px solid #d9d2c7;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: inherit;
+  resize: none;
+  min-height: 42px;
+  max-height: 150px;
+  overflow-y: auto;
+  line-height: 1.4;
+}
+
+.input-row textarea:focus {
+  outline: none;
+  border-color: var(--ember);
+  box-shadow: 0 0 0 2px rgba(184, 107, 75, 0.2);
 }
 
 .input-row input {
