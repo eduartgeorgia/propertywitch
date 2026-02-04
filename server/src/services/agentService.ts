@@ -423,7 +423,7 @@ async function callAgentAI(
  */
 export async function runAgent(
   userQuery: string,
-  userLocation: { label: string; lat: number; lng: number; currency: string },
+  userLocation?: { label?: string; lat?: number; lng?: number; currency?: string },
   maxSteps: number = 5
 ): Promise<AgentResult> {
   const health = await checkAIHealth();
