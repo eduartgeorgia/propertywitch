@@ -7,13 +7,14 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "npx esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/server.js --external:express --external:cors --external:dotenv --external:zod --external:pdf-lib",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/server.js --external:express --external:cors --external:dotenv --external:zod --external:pdf-lib",
     "start": "node dist/server.js",
     "start:simple": "node index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "esbuild": "^0.20.0",
     "express": "^4.19.2",
     "pdf-lib": "^1.17.1",
     "zod": "^3.23.8"
