@@ -148,7 +148,7 @@ FINAL_ANSWER: I found X plots of land near Lisbon suitable for building...`;
 async function executeAgentTool(
   tool: string,
   input: Record<string, unknown>,
-  userLocation: { label: string; lat: number; lng: number; currency: string }
+  userLocation?: { label?: string; lat?: number; lng?: number; currency?: string }
 ): Promise<{ success: boolean; result: unknown; summary: string }> {
   console.log(`[Agent] Executing tool: ${tool}`, input);
 
