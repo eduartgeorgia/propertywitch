@@ -7,8 +7,9 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "echo 'No build needed'",
-    "start": "node index.js"
+    "build": "npx esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/server.js --external:express --external:cors --external:dotenv --external:zod --external:pdf-lib",
+    "start": "node dist/server.js",
+    "start:simple": "node index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
