@@ -2365,6 +2365,18 @@ var detectIntent = async (message, conversationHistory, hasRecentResults) => {
     /(?:for sale|to buy|available)/i,
     /^show\s+(?:me\s+)?(?:them|those|these|the\s+listings?)/i
   ];
+  const pickSelectPatterns = [
+    /(?:pick|select|choose|get|give me|show me)\s+(\d+|one|two|three|four|five|a few|some|the best|top)\s*(?:of them|from them|that|which|listings?|properties?|options?|ones?)?/i,
+    /(?:pick|select|choose)\s+(?:the\s+)?(?:\d+|one|two|three|four|five)\s*(?:closest|nearest|cheapest|best|top)/i,
+    /(?:the\s+)?(?:\d+|two|three)\s+(?:closest|nearest|cheapest|best)\s*(?:to|ones?)?/i
+  ];
+  if (hasRecentResults) {
+    for (const pattern of pickSelectPatterns) {
+      if (pattern.test(message)) {
+        return { intent: "pick_from_results", isPropertySearch: true };
+      }
+    }
+  }
   for (const pattern of searchIndicators) {
     if (pattern.test(message)) {
       return { intent: "search", isPropertySearch: true };
@@ -2853,6 +2865,79 @@ var getRelevantListings = async (userQuery, listings) => {
 };
 var getRAGSystemStats = () => {
   return getRAGStats();
+};
+var pickBestListings = async (userQuery, listings, count = 2) => {
+  if (listings.length === 0) {
+    return { selectedListings: [], explanation: "No listings available to pick from." };
+  }
+  const countMatch = userQuery.match(/(\d+|one|two|three|four|five|a few|some)/i);
+  if (countMatch) {
+    const numWords = { one: 1, two: 2, three: 3, four: 4, five: 5, "a few": 3, some: 3 };
+    const parsed = numWords[countMatch[1].toLowerCase()] || parseInt(countMatch[1]);
+    if (!isNaN(parsed)) count = parsed;
+  }
+  count = Math.min(count, listings.length);
+  const health = await checkAIHealth();
+  if (!health.available) {
+    return {
+      selectedListings: listings.slice(0, count),
+      explanation: `Here are the top ${count} listings from your search.`
+    };
+  }
+  const listingData = listings.slice(0, 30).map((l, idx) => ({
+    index: idx,
+    id: l.id,
+    title: l.title,
+    price: l.priceEur || l.displayPrice,
+    location: l.locationLabel || l.city,
+    distance: l.distanceKm,
+    beds: l.beds,
+    baths: l.baths,
+    area: l.areaSqm,
+    propertyType: l.propertyType
+  }));
+  const pickPrompt = `You are helping a user select properties from their search results.
+
+User request: "${userQuery}"
+
+Available listings:
+${JSON.stringify(listingData, null, 2)}
+
+TASK: Select the ${count} best listings that match the user's criteria.
+- If they want "closest to center", prioritize by distance (lower distanceKm = closer)
+- If they want "cheapest", prioritize by price
+- If they want "best", use overall value (price/quality/location balance)
+
+Respond with ONLY a valid JSON object:
+{
+  "selectedIndices": [0, 3],  // Array of indices from the listings
+  "explanation": "I selected these because... (2-3 sentences explaining why these are the best choices)"
+}`;
+  try {
+    const response = await callAIWithFallback(pickPrompt, "You are a helpful real estate assistant that selects the best properties based on user criteria.");
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const indices = parsed.selectedIndices || [];
+      const selectedListings = indices.filter((i) => i >= 0 && i < listings.length).slice(0, count).map((i) => listings[i]);
+      return {
+        selectedListings,
+        explanation: parsed.explanation || `Here are the ${count} best options based on your criteria.`
+      };
+    }
+  } catch (error) {
+    console.error("Error picking listings with AI:", error);
+  }
+  const sortedListings = [...listings].sort((a, b) => {
+    if (userQuery.toLowerCase().includes("closest") || userQuery.toLowerCase().includes("center")) {
+      return (a.distanceKm || 999) - (b.distanceKm || 999);
+    }
+    return (a.priceEur || 0) - (b.priceEur || 0);
+  });
+  return {
+    selectedListings: sortedListings.slice(0, count),
+    explanation: `Here are the ${count} listings that best match your criteria.`
+  };
 };
 
 // src/services/searchService.ts
@@ -3629,6 +3714,17 @@ function getLastSearchContext(threadId) {
   const thread = threads.get(threadId);
   return thread?.lastSearchContext || null;
 }
+function storeSearchResults(threadId, listings) {
+  const thread = threads.get(threadId);
+  if (thread) {
+    thread.lastSearchResults = listings;
+    console.log(`[Threads] Stored ${listings.length} listings in thread ${threadId}`);
+  }
+}
+function getLastSearchResults(threadId) {
+  const thread = threads.get(threadId);
+  return thread?.lastSearchResults || null;
+}
 function deleteThread(threadId) {
   return threads.delete(threadId);
 }
@@ -3740,10 +3836,43 @@ router4.post("/chat", async (req, res) => {
       timings.intentDetection = Date.now() - t0;
       intentType = intent.intent;
       confirmationContext = intent.confirmationContext;
-      shouldSearch = intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings";
+      shouldSearch = (intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings") && intent.intent !== "pick_from_results";
     } else if (mode === "chat") {
       shouldSearch = false;
       intentType = "conversation";
+    }
+    if (intentType === "pick_from_results" && threadId) {
+      const storedListings = getLastSearchResults(threadId);
+      if (storedListings && storedListings.length > 0) {
+        t0 = Date.now();
+        const { selectedListings, explanation } = await pickBestListings(message, storedListings);
+        timings.pickListings = Date.now() - t0;
+        if (selectedListings.length > 0) {
+          const aiSummary2 = explanation;
+          if (threadId) {
+            addMessage(threadId, "assistant", aiSummary2, "search", lastSearchContext || void 0);
+          }
+          timings.total = Date.now() - requestStart;
+          console.log(`[Chat] Picked ${selectedListings.length} listings. Timings:`, timings);
+          return res.json({
+            type: "search",
+            intentDetected: "pick_from_results",
+            message: aiSummary2,
+            searchResult: {
+              listings: selectedListings,
+              totalCount: selectedListings.length,
+              matchType: "exact",
+              appliedPriceRange: {}
+            },
+            searchContext: lastSearchContext,
+            threadId,
+            aiAvailable: health.available,
+            aiBackend: health.backend,
+            _timings: timings
+          });
+        }
+      }
+      console.log("[Chat] No stored listings for pick_from_results, falling back to search");
     }
     if (!shouldSearch) {
       t0 = Date.now();
@@ -3860,6 +3989,9 @@ router4.post("/chat", async (req, res) => {
       searchResult.matchType
     );
     const searchContext = `User searched for: "${searchQuery}". Found ${searchResult.listings.length} listings (${searchResult.matchType} match). Price range: \u20AC${searchResult.appliedPriceRange.min ?? 0} - \u20AC${searchResult.appliedPriceRange.max ?? "any"}. Locations: ${locations.slice(0, 5).join(", ") || "Various Portugal"}.`;
+    if (threadId && searchResult.listings.length > 0) {
+      storeSearchResults(threadId, searchResult.listings);
+    }
     if (threadId) {
       addMessage(threadId, "assistant", aiSummary, "search", searchContext);
     }

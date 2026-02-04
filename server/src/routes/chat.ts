@@ -12,6 +12,7 @@ import {
   setActiveBackend,
   getCurrentBackendInfo,
   AIBackend,
+  pickBestListings,
 } from "../services/aiService";
 import { runSearch } from "../services/searchService";
 import { runAgent, shouldUseAgent } from "../services/agentService";
@@ -21,6 +22,8 @@ import {
   addMessage,
   getConversationHistory,
   getLastSearchContext as getThreadSearchContext,
+  storeSearchResults,
+  getLastSearchResults,
 } from "../services/threadService";
 
 const router = Router();
@@ -152,7 +155,7 @@ router.post("/chat", async (req, res) => {
 
     // Determine intent - either use specified mode or auto-detect
     let shouldSearch = mode === "search";
-    let intentType: "search" | "conversation" | "follow_up" | "refine_search" | "show_listings" = "search";
+    let intentType: "search" | "conversation" | "follow_up" | "refine_search" | "show_listings" | "pick_from_results" = "search";
     let confirmationContext: string | undefined;
     
     if (mode === "auto") {
@@ -162,11 +165,52 @@ router.post("/chat", async (req, res) => {
       timings.intentDetection = Date.now() - t0;
       intentType = intent.intent;
       confirmationContext = intent.confirmationContext;
-      // Trigger search for: search, refine_search, OR show_listings intents
-      shouldSearch = intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings";
+      // Trigger search for: search, refine_search, OR show_listings intents (but NOT pick_from_results - handled separately)
+      shouldSearch = (intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings") && intent.intent !== "pick_from_results";
     } else if (mode === "chat") {
       shouldSearch = false;
       intentType = "conversation";
+    }
+
+    // Handle "pick X from results" intent - select from stored listings
+    if (intentType === "pick_from_results" && threadId) {
+      const storedListings = getLastSearchResults(threadId);
+      if (storedListings && storedListings.length > 0) {
+        t0 = Date.now();
+        const { selectedListings, explanation } = await pickBestListings(message, storedListings);
+        timings.pickListings = Date.now() - t0;
+        
+        if (selectedListings.length > 0) {
+          const aiSummary = explanation;
+          
+          // Store response in thread
+          if (threadId) {
+            addMessage(threadId, "assistant", aiSummary, "search", lastSearchContext || undefined);
+          }
+          
+          timings.total = Date.now() - requestStart;
+          console.log(`[Chat] Picked ${selectedListings.length} listings. Timings:`, timings);
+          
+          return res.json({
+            type: "search",
+            intentDetected: "pick_from_results",
+            message: aiSummary,
+            searchResult: {
+              listings: selectedListings,
+              totalCount: selectedListings.length,
+              matchType: "exact",
+              appliedPriceRange: {},
+            },
+            searchContext: lastSearchContext,
+            threadId,
+            aiAvailable: health.available,
+            aiBackend: health.backend,
+            _timings: timings,
+          });
+        }
+      }
+      // If no stored listings, fall through to regular search
+      console.log("[Chat] No stored listings for pick_from_results, falling back to search");
     }
 
     // Handle conversation/follow-up (non-search) intent
@@ -322,6 +366,11 @@ router.post("/chat", async (req, res) => {
     const searchContext = `User searched for: "${searchQuery}". Found ${searchResult.listings.length} listings (${searchResult.matchType} match). ` +
       `Price range: €${searchResult.appliedPriceRange.min ?? 0} - €${searchResult.appliedPriceRange.max ?? 'any'}. ` +
       `Locations: ${locations.slice(0, 5).join(", ") || "Various Portugal"}.`;
+
+    // Store search results in thread for future "pick X" queries
+    if (threadId && searchResult.listings.length > 0) {
+      storeSearchResults(threadId, searchResult.listings);
+    }
 
     // Store search response in thread
     if (threadId) {

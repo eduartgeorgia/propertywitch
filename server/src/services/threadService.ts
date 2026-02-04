@@ -18,6 +18,7 @@ export type ChatThread = {
   updatedAt: string;
   messages: ChatMessage[];
   lastSearchContext?: string;
+  lastSearchResults?: any[]; // Store actual listing data for pick/select queries
 };
 
 // In-memory storage for threads (in production, use a database)
@@ -137,6 +138,25 @@ export function getConversationHistory(threadId: string, limit = 20): Array<{ ro
 export function getLastSearchContext(threadId: string): string | null {
   const thread = threads.get(threadId);
   return thread?.lastSearchContext || null;
+}
+
+/**
+ * Store search results in a thread (for pick/select queries)
+ */
+export function storeSearchResults(threadId: string, listings: any[]): void {
+  const thread = threads.get(threadId);
+  if (thread) {
+    thread.lastSearchResults = listings;
+    console.log(`[Threads] Stored ${listings.length} listings in thread ${threadId}`);
+  }
+}
+
+/**
+ * Get last search results from a thread
+ */
+export function getLastSearchResults(threadId: string): any[] | null {
+  const thread = threads.get(threadId);
+  return thread?.lastSearchResults || null;
 }
 
 /**

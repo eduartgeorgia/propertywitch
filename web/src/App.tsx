@@ -897,34 +897,6 @@ const App = () => {
                 placeholder="Your location"
               />
             </label>
-            <div className="location-row">
-              <label>
-                Min Price
-                <input 
-                  type="number" 
-                  value={minPrice} 
-                  onChange={(event) => setMinPrice(event.target.value)}
-                  placeholder="e.g., 10000"
-                />
-              </label>
-              <label>
-                Max Price
-                <input 
-                  type="number" 
-                  value={maxPrice} 
-                  onChange={(event) => setMaxPrice(event.target.value)}
-                  placeholder="e.g., 50000"
-                />
-              </label>
-              <label>
-                Currency
-                <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
-                </select>
-              </label>
-            </div>
           </div>
 
           <div className="input-row">

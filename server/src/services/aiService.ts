@@ -685,7 +685,7 @@ Write a brief, helpful response (2-3 sentences) about these results. Be conversa
 /**
  * Detect user intent from message
  */
-export type UserIntent = "search" | "conversation" | "follow_up" | "refine_search" | "show_listings";
+export type UserIntent = "search" | "conversation" | "follow_up" | "refine_search" | "show_listings" | "pick_from_results";
 
 export const detectIntent = async (
   message: string,
@@ -743,6 +743,22 @@ export const detectIntent = async (
     /(?:for sale|to buy|available)/i,
     /^show\s+(?:me\s+)?(?:them|those|these|the\s+listings?)/i,
   ];
+  
+  // Patterns for "pick X" / "select X" / "choose X" from previous results
+  const pickSelectPatterns = [
+    /(?:pick|select|choose|get|give me|show me)\s+(\d+|one|two|three|four|five|a few|some|the best|top)\s*(?:of them|from them|that|which|listings?|properties?|options?|ones?)?/i,
+    /(?:pick|select|choose)\s+(?:the\s+)?(?:\d+|one|two|three|four|five)\s*(?:closest|nearest|cheapest|best|top)/i,
+    /(?:the\s+)?(?:\d+|two|three)\s+(?:closest|nearest|cheapest|best)\s*(?:to|ones?)?/i,
+  ];
+  
+  // Check for pick/select intent when there are recent results
+  if (hasRecentResults) {
+    for (const pattern of pickSelectPatterns) {
+      if (pattern.test(message)) {
+        return { intent: "pick_from_results", isPropertySearch: true };
+      }
+    }
+  }
 
   // Check for obvious search intent
   for (const pattern of searchIndicators) {
@@ -1421,6 +1437,106 @@ export const getRelevantListings = async <T extends ListingForAnalysis>(
  */
 export const getRAGSystemStats = () => {
   return getRAGStats();
+};
+
+/**
+ * Pick best listings from previous results using AI
+ * Used when user says "pick 2", "choose the best ones", etc.
+ */
+export const pickBestListings = async (
+  userQuery: string,
+  listings: any[],
+  count: number = 2
+): Promise<{ selectedListings: any[]; explanation: string }> => {
+  if (listings.length === 0) {
+    return { selectedListings: [], explanation: "No listings available to pick from." };
+  }
+
+  // Extract the count from the query if specified
+  const countMatch = userQuery.match(/(\d+|one|two|three|four|five|a few|some)/i);
+  if (countMatch) {
+    const numWords: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, "a few": 3, some: 3 };
+    const parsed = numWords[countMatch[1].toLowerCase()] || parseInt(countMatch[1]);
+    if (!isNaN(parsed)) count = parsed;
+  }
+
+  // Limit to available listings
+  count = Math.min(count, listings.length);
+
+  const health = await checkAIHealth();
+  if (!health.available) {
+    // Fallback: just return the first N listings
+    return {
+      selectedListings: listings.slice(0, count),
+      explanation: `Here are the top ${count} listings from your search.`,
+    };
+  }
+
+  // Create simplified listing data for AI
+  const listingData = listings.slice(0, 30).map((l, idx) => ({
+    index: idx,
+    id: l.id,
+    title: l.title,
+    price: l.priceEur || l.displayPrice,
+    location: l.locationLabel || l.city,
+    distance: l.distanceKm,
+    beds: l.beds,
+    baths: l.baths,
+    area: l.areaSqm,
+    propertyType: l.propertyType,
+  }));
+
+  const pickPrompt = `You are helping a user select properties from their search results.
+
+User request: "${userQuery}"
+
+Available listings:
+${JSON.stringify(listingData, null, 2)}
+
+TASK: Select the ${count} best listings that match the user's criteria.
+- If they want "closest to center", prioritize by distance (lower distanceKm = closer)
+- If they want "cheapest", prioritize by price
+- If they want "best", use overall value (price/quality/location balance)
+
+Respond with ONLY a valid JSON object:
+{
+  "selectedIndices": [0, 3],  // Array of indices from the listings
+  "explanation": "I selected these because... (2-3 sentences explaining why these are the best choices)"
+}`;
+
+  try {
+    const response = await callAIWithFallback(pickPrompt, "You are a helpful real estate assistant that selects the best properties based on user criteria.");
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const indices = parsed.selectedIndices || [];
+      const selectedListings = indices
+        .filter((i: number) => i >= 0 && i < listings.length)
+        .slice(0, count)
+        .map((i: number) => listings[i]);
+      
+      return {
+        selectedListings,
+        explanation: parsed.explanation || `Here are the ${count} best options based on your criteria.`,
+      };
+    }
+  } catch (error) {
+    console.error("Error picking listings with AI:", error);
+  }
+
+  // Fallback: sort by distance if "closest" mentioned, otherwise by price
+  const sortedListings = [...listings].sort((a, b) => {
+    if (userQuery.toLowerCase().includes("closest") || userQuery.toLowerCase().includes("center")) {
+      return (a.distanceKm || 999) - (b.distanceKm || 999);
+    }
+    return (a.priceEur || 0) - (b.priceEur || 0);
+  });
+
+  return {
+    selectedListings: sortedListings.slice(0, count),
+    explanation: `Here are the ${count} listings that best match your criteria.`,
+  };
 };
 
 /**
