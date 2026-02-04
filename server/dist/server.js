@@ -5136,6 +5136,9 @@ var CONFIG = {
   // 5 seconds
   // Maximum listings to index per run
   maxListingsPerRun: 500,
+  // Maximum age of listings to index (in days)
+  maxListingAgeDays: 90,
+  // 3 months
   // Price ranges to search
   priceRanges: [
     { min: 0, max: 1e5 },
@@ -5172,6 +5175,13 @@ async function fetchListings(query, location, priceRange) {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+function isListingRecent(listing) {
+  if (!listing.lastSeenAt) return true;
+  const listingDate = new Date(listing.lastSeenAt);
+  const cutoffDate = /* @__PURE__ */ new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - CONFIG.maxListingAgeDays);
+  return listingDate >= cutoffDate;
+}
 async function runIndexingCycle() {
   if (indexingInProgress) {
     return { success: false, indexed: 0, error: "Indexing already in progress" };
@@ -5192,11 +5202,19 @@ async function runIndexingCycle() {
           try {
             console.log(`[Indexer] Fetching: "${query}" in ${location.name} (\u20AC${priceRange.min || 0}-${priceRange.max || "any"})`);
             const listings = await fetchListings(query, location, priceRange);
+            let skippedOld = 0;
             for (const listing of listings) {
               if (!seenIds.has(listing.id)) {
-                seenIds.add(listing.id);
-                allListings.push(listing);
+                if (isListingRecent(listing)) {
+                  seenIds.add(listing.id);
+                  allListings.push(listing);
+                } else {
+                  skippedOld++;
+                }
               }
+            }
+            if (skippedOld > 0) {
+              console.log(`[Indexer] Skipped ${skippedOld} listings older than ${CONFIG.maxListingAgeDays} days`);
             }
             console.log(`[Indexer] Found ${listings.length} listings, total unique: ${allListings.length}`);
             await sleep(CONFIG.searchDelay);

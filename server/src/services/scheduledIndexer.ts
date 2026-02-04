@@ -46,6 +46,9 @@ const CONFIG = {
   // Maximum listings to index per run
   maxListingsPerRun: 500,
   
+  // Maximum age of listings to index (in days)
+  maxListingAgeDays: 90, // 3 months
+  
   // Price ranges to search
   priceRanges: [
     { min: 0, max: 100000 },
@@ -99,6 +102,19 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Check if a listing is within the allowed age limit
+ */
+function isListingRecent(listing: Listing): boolean {
+  if (!listing.lastSeenAt) return true; // Allow if no date
+  
+  const listingDate = new Date(listing.lastSeenAt);
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - CONFIG.maxListingAgeDays);
+  
+  return listingDate >= cutoffDate;
+}
+
+/**
  * Run a single indexing cycle
  */
 export async function runIndexingCycle(): Promise<{ success: boolean; indexed: number; error?: string }> {
@@ -127,12 +143,20 @@ export async function runIndexingCycle(): Promise<{ success: boolean; indexed: n
             console.log(`[Indexer] Fetching: "${query}" in ${location.name} (€${priceRange.min || 0}-${priceRange.max || 'any'})`);
             const listings = await fetchListings(query, location, priceRange);
             
-            // Deduplicate
+            // Deduplicate and filter by age (max 3 months old)
+            let skippedOld = 0;
             for (const listing of listings) {
               if (!seenIds.has(listing.id)) {
-                seenIds.add(listing.id);
-                allListings.push(listing);
+                if (isListingRecent(listing)) {
+                  seenIds.add(listing.id);
+                  allListings.push(listing);
+                } else {
+                  skippedOld++;
+                }
               }
+            }
+            if (skippedOld > 0) {
+              console.log(`[Indexer] Skipped ${skippedOld} listings older than ${CONFIG.maxListingAgeDays} days`);
             }
             
             console.log(`[Indexer] Found ${listings.length} listings, total unique: ${allListings.length}`);
