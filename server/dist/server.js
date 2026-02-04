@@ -1355,6 +1355,97 @@ Key checks:
     tags: ["land", "plot", "rural", "urban", "building", "construction", "terreno"]
   },
   {
+    id: "construction-land-portugal",
+    title: "Construction Land Laws in Portugal - Terreno para Constru\xE7\xE3o",
+    content: `IMPORTANT: Not all land in Portugal can be built on. Understanding land classification is critical.
+
+LAND TYPES AND BUILDABILITY:
+
+1. TERRENO URBANO (Urban Land) - CAN BUILD \u2705
+   - Officially classified for construction in municipal plans (PDM)
+   - Listed as "urbano" in Caderneta Predial (property registry)
+   - Has approved building parameters (height, area, usage)
+   - Usually has or can get utilities (\xE1gua, luz, saneamento)
+   - Keywords in listings: "urbano", "para constru\xE7\xE3o", "lote", "urbaniz\xE1vel"
+
+2. TERRENO R\xDASTICO (Rural/Rustic Land) - DIFFICULT TO BUILD \u274C
+   - Agricultural land, usually cannot build residential
+   - Listed as "r\xFAstico" in Caderneta Predial
+   - May only allow agricultural structures (barns, storage)
+   - Exceptions: Very large plots (5000+ sqm) in some municipalities
+   - Keywords: "r\xFAstico", "agr\xEDcola", "terreno agr\xEDcola"
+
+3. MIXED/APTO PARA CONSTRU\xC7\xC3O (Mixed Use) - CAN BUILD WITH CONDITIONS \u26A0\uFE0F
+   - Rural land with building rights
+   - Often old "grandfathered" plots
+   - Check PIP (Pedido de Informa\xE7\xE3o Pr\xE9via) for exact allowances
+
+CRITICAL DOCUMENTS TO CHECK:
+
+\u{1F4C4} CADERNETA PREDIAL (Property Registry)
+   - Shows if land is "urbano" or "r\xFAstico"
+   - Get from Finan\xE7as (tax office)
+   - If it says "urbano" \u2192 construction allowed
+
+\u{1F4C4} PDM (Plano Director Municipal)
+   - Municipal zoning plan
+   - Defines what can be built where
+   - Check at local C\xE2mara Municipal (city hall)
+   - Zones: residential, commercial, industrial, agricultural
+
+\u{1F4C4} PIP (Pedido de Informa\xE7\xE3o Pr\xE9via)
+   - Pre-approval request to municipality
+   - Confirms exactly what you can build
+   - Cost: \u20AC50-200, takes 30-60 days
+   - HIGHLY RECOMMENDED before buying
+
+\u{1F4C4} ALVAR\xC1 DE LOTEAMENTO
+   - For plots in approved developments
+   - Includes all specifications for building
+   - Simplest option - everything pre-approved
+
+WHAT TO LOOK FOR IN LISTINGS:
+
+\u2705 GOOD SIGNS (can build):
+- "Terreno urbano" - urban land
+- "Lote de terreno" - building plot
+- "Para constru\xE7\xE3o" - for construction
+- "Viabilidade de constru\xE7\xE3o" - building viability
+- "Projeto aprovado" - approved project
+- "Com alvar\xE1" - with building permit
+- "\xCDndice de constru\xE7\xE3o" - building index specified
+- "\xC1rea de implanta\xE7\xE3o" - footprint area specified
+
+\u274C WARNING SIGNS (may NOT be buildable):
+- "Terreno r\xFAstico" - rural land (usually no building)
+- "Terreno agr\xEDcola" - agricultural land
+- "RAN" - National Agricultural Reserve (no building)
+- "REN" - National Ecological Reserve (no building)
+- "\xC1rea protegida" - protected area
+- No mention of "urbano" or "constru\xE7\xE3o"
+
+BUILDING PERMIT PROCESS:
+1. Projeto de Arquitetura - Architectural project
+2. Submit to C\xE2mara Municipal
+3. Technical evaluation (60-120 days)
+4. Pay license fee (taxa de licen\xE7a)
+5. Receive Alvar\xE1 de Constru\xE7\xE3o
+6. Build within permit timeframe
+
+COMMON MISTAKES:
+- Buying "r\xFAstico" thinking you can build \u2192 you usually cannot
+- Not checking PDM before purchase \u2192 may have restrictions
+- Assuming ruins = building rights \u2192 not always
+- Not verifying utilities access \u2192 expensive to connect
+
+PRICE DIFFERENCE:
+- Urban plots: \u20AC30-300/sqm (depending on location)
+- Rural/r\xFAstico: \u20AC1-15/sqm (much cheaper but can't build)
+- The price difference reflects buildability!`,
+    category: "property-types",
+    tags: ["construction", "land", "terreno", "urbano", "rustico", "building", "permit", "PDM", "constru\xE7\xE3o", "lote", "plot"]
+  },
+  {
     id: "ruins-renovation",
     title: "Buying and Renovating Ruins in Portugal",
     content: `Ruins can be excellent value but require careful consideration:
@@ -2587,12 +2678,21 @@ CRITICAL: First, understand EXACTLY what the user wants:
 - "vineyard" = agricultural land suitable for wine production
 - "investment property" = something with rental/resale potential
 
+CONSTRUCTION LAND IN PORTUGAL - CRITICAL RULES:
+When user asks for "land for construction", "building land", "terreno para constru\xE7\xE3o", "lote":
+- ONLY include listings with "urbano" (urban), "constru\xE7\xE3o" (construction), "lote" (plot), "viabilidade", "projeto aprovado"
+- EXCLUDE listings with "r\xFAstico" (rural), "agr\xEDcola" (agricultural) - these CANNOT be built on!
+- "Terreno r\xFAstico" = REJECT (no construction allowed)
+- "Terreno urbano" or "lote de terreno" = ACCEPT (construction allowed)
+- If listing doesn't mention land type, check price: urban plots are \u20AC30-300/sqm, rural is \u20AC1-15/sqm
+- Very cheap land (under \u20AC5/sqm) is usually r\xFAstico and CANNOT be built on
+
 For EACH listing, analyze:
-1. TITLE: What does the Portuguese title tell us? (terreno=land, r\xFAstico=rural, urbano=urban, quinta=farm estate)
+1. TITLE: What does the Portuguese title tell us? (terreno=land, r\xFAstico=rural/NO BUILD, urbano=urban/CAN BUILD, quinta=farm estate)
 2. DESCRIPTION: Read the full description carefully. Look for keywords about:
-   - Land type (agr\xEDcola=agricultural, constru\xE7\xE3o=building, r\xFAstico=rustic)
+   - Land type (agr\xEDcola=agricultural/NO BUILD, constru\xE7\xE3o=building/OK, r\xFAstico=rustic/NO BUILD, urbano=urban/OK)
    - Features (\xE1gua=water, eletricidade=electricity, estrada=road access, vista=view)
-   - Permits (licen\xE7a=license, projeto=project approved)
+   - Permits (licen\xE7a=license, projeto=project approved, alvar\xE1=permit)
    - Condition (para recuperar=needs work, pronto=ready)
 3. SIZE & PRICE: Does the area make sense for the user's purpose?
 4. LOCATION: Is it in the right region for what they want?
@@ -2603,7 +2703,10 @@ SCORING GUIDE:
 - 50-69: Partial match - could work but not ideal
 - Below 50: Not relevant - mark as isRelevant: false
 
-BE STRICT: If user wants "land" don't show houses. If they want "farming land" don't show building plots.
+BE STRICT: 
+- If user wants "construction land" \u2192 ONLY show "urbano" or "lote" listings, REJECT all "r\xFAstico"
+- If user wants "land" without specifying \u2192 show both but note which are buildable
+- If user wants "farming land" \u2192 show r\xFAstico, REJECT urban plots
 
 Respond with ONLY a valid JSON array:
 [
@@ -2611,7 +2714,7 @@ Respond with ONLY a valid JSON array:
     "id": "listing-id",
     "isRelevant": true/false,
     "relevanceScore": 0-100,
-    "reasoning": "2-3 sentence explanation in English of why this listing matches or doesn't match the user's specific needs"
+    "reasoning": "2-3 sentence explanation in English of why this listing matches or doesn't match the user's specific needs. For construction queries, explicitly mention if land is urbano (buildable) or r\xFAstico (not buildable)."
   }
 ]`;
 var AI_ANALYSIS_CONFIG = {
@@ -2747,6 +2850,8 @@ function analyzeListingsLocally(userQuery, listings) {
   const wantsApartment = /apartment|apartamento|apt|flat/.test(query) && !/house|moradia|villa/.test(query);
   const wantsHouse = /house|casa|moradia|villa|vivenda|quinta/.test(query);
   const wantsLand = /land|terreno|plot|lote|terrain/.test(query);
+  const wantsConstructionLand = /construct|build|construção|construir|building plot|lote para|urbano/.test(query) && wantsLand;
+  const wantsFarmingLand = /farm|agric|farming|cultiv|rústico|agrícola/.test(query) && wantsLand;
   const wantsRoom = /room|quarto|bedroom/.test(query);
   const wantsForSale = /sale|buy|compra|venda|purchase|\d{5,}/.test(query);
   const wantsForRent = /rent|arrendar|alugar|aluguer/.test(query);
@@ -2765,7 +2870,10 @@ function analyzeListingsLocally(userQuery, listings) {
     const isLand = /terreno|land|lote|plot|rústico/.test(combined);
     const isCommercial = /comercial|loja|armazém|pavilh|escritório|office/.test(combined);
     const isMobileHome = /mobil\s*home|caravana|rulote/.test(combined);
-    const propertyType = isRoom ? "Room" : isApartment ? "Apartment" : isHouse ? "House/Villa" : isLand ? "Land" : isCommercial ? "Commercial" : isMobileHome ? "Mobile Home" : "Property";
+    const isUrbanLand = isLand && /urbano|urbanizável|construção|lote de|para construir|viabilidade|projeto aprovado|alvará/.test(combined);
+    const isRuralLand = isLand && /rústico|rústica|agrícola|agricultural|rural/.test(combined);
+    const isLandBuildable = isUrbanLand && !isRuralLand;
+    const propertyType = isRoom ? "Room" : isApartment ? "Apartment" : isHouse ? "House/Villa" : isUrbanLand ? "Urban Land (buildable)" : isRuralLand ? "Rural Land (not buildable)" : isLand ? "Land" : isCommercial ? "Commercial" : isMobileHome ? "Mobile Home" : "Property";
     if (wantsApartment) {
       if (isApartment) {
         score += 35;
@@ -2794,8 +2902,48 @@ function analyzeListingsLocally(userQuery, listings) {
         reasons.push(`${propertyType} - you searched for houses`);
       }
     } else if (wantsLand && isLand) {
-      score += 30;
-      reasons.push(`Land plot matches your search`);
+      if (wantsConstructionLand) {
+        if (isUrbanLand && !isRuralLand) {
+          score += 40;
+          reasons.push(`Urban land - suitable for construction`);
+        } else if (isRuralLand) {
+          score -= 40;
+          reasons.push(`\u26A0\uFE0F Rural/r\xFAstico land - CANNOT build on this`);
+          isRelevant = false;
+        } else {
+          const pricePerSqm = l.areaSqm && l.areaSqm > 0 ? l.priceEur / l.areaSqm : 0;
+          if (pricePerSqm > 20) {
+            score += 20;
+            reasons.push(`Land (\u20AC${Math.round(pricePerSqm)}/m\xB2 suggests buildable)`);
+          } else if (pricePerSqm > 0 && pricePerSqm < 10) {
+            score -= 20;
+            reasons.push(`Low price (\u20AC${Math.round(pricePerSqm)}/m\xB2) suggests rural/unbuildable`);
+            isRelevant = false;
+          } else {
+            reasons.push(`Land - verify if urbano (buildable) or r\xFAstico (not buildable)`);
+          }
+        }
+      } else if (wantsFarmingLand) {
+        if (isRuralLand) {
+          score += 40;
+          reasons.push(`Rural/agricultural land - suitable for farming`);
+        } else if (isUrbanLand) {
+          score -= 10;
+          reasons.push(`Urban land - designed for construction, not farming`);
+        } else {
+          score += 20;
+          reasons.push(`Land plot - check if suitable for agriculture`);
+        }
+      } else {
+        score += 30;
+        if (isUrbanLand) {
+          reasons.push(`Urban land (construction allowed)`);
+        } else if (isRuralLand) {
+          reasons.push(`Rural land (agricultural use only)`);
+        } else {
+          reasons.push(`Land plot - verify land classification`);
+        }
+      }
     } else if (wantsRoom && isRoom) {
       score += 25;
       reasons.push(`Room rental matches your search`);

@@ -186,6 +186,97 @@ Key checks:
     tags: ["land", "plot", "rural", "urban", "building", "construction", "terreno"],
   },
   {
+    id: "construction-land-portugal",
+    title: "Construction Land Laws in Portugal - Terreno para Construção",
+    content: `IMPORTANT: Not all land in Portugal can be built on. Understanding land classification is critical.
+
+LAND TYPES AND BUILDABILITY:
+
+1. TERRENO URBANO (Urban Land) - CAN BUILD ✅
+   - Officially classified for construction in municipal plans (PDM)
+   - Listed as "urbano" in Caderneta Predial (property registry)
+   - Has approved building parameters (height, area, usage)
+   - Usually has or can get utilities (água, luz, saneamento)
+   - Keywords in listings: "urbano", "para construção", "lote", "urbanizável"
+
+2. TERRENO RÚSTICO (Rural/Rustic Land) - DIFFICULT TO BUILD ❌
+   - Agricultural land, usually cannot build residential
+   - Listed as "rústico" in Caderneta Predial
+   - May only allow agricultural structures (barns, storage)
+   - Exceptions: Very large plots (5000+ sqm) in some municipalities
+   - Keywords: "rústico", "agrícola", "terreno agrícola"
+
+3. MIXED/APTO PARA CONSTRUÇÃO (Mixed Use) - CAN BUILD WITH CONDITIONS ⚠️
+   - Rural land with building rights
+   - Often old "grandfathered" plots
+   - Check PIP (Pedido de Informação Prévia) for exact allowances
+
+CRITICAL DOCUMENTS TO CHECK:
+
+📄 CADERNETA PREDIAL (Property Registry)
+   - Shows if land is "urbano" or "rústico"
+   - Get from Finanças (tax office)
+   - If it says "urbano" → construction allowed
+
+📄 PDM (Plano Director Municipal)
+   - Municipal zoning plan
+   - Defines what can be built where
+   - Check at local Câmara Municipal (city hall)
+   - Zones: residential, commercial, industrial, agricultural
+
+📄 PIP (Pedido de Informação Prévia)
+   - Pre-approval request to municipality
+   - Confirms exactly what you can build
+   - Cost: €50-200, takes 30-60 days
+   - HIGHLY RECOMMENDED before buying
+
+📄 ALVARÁ DE LOTEAMENTO
+   - For plots in approved developments
+   - Includes all specifications for building
+   - Simplest option - everything pre-approved
+
+WHAT TO LOOK FOR IN LISTINGS:
+
+✅ GOOD SIGNS (can build):
+- "Terreno urbano" - urban land
+- "Lote de terreno" - building plot
+- "Para construção" - for construction
+- "Viabilidade de construção" - building viability
+- "Projeto aprovado" - approved project
+- "Com alvará" - with building permit
+- "Índice de construção" - building index specified
+- "Área de implantação" - footprint area specified
+
+❌ WARNING SIGNS (may NOT be buildable):
+- "Terreno rústico" - rural land (usually no building)
+- "Terreno agrícola" - agricultural land
+- "RAN" - National Agricultural Reserve (no building)
+- "REN" - National Ecological Reserve (no building)
+- "Área protegida" - protected area
+- No mention of "urbano" or "construção"
+
+BUILDING PERMIT PROCESS:
+1. Projeto de Arquitetura - Architectural project
+2. Submit to Câmara Municipal
+3. Technical evaluation (60-120 days)
+4. Pay license fee (taxa de licença)
+5. Receive Alvará de Construção
+6. Build within permit timeframe
+
+COMMON MISTAKES:
+- Buying "rústico" thinking you can build → you usually cannot
+- Not checking PDM before purchase → may have restrictions
+- Assuming ruins = building rights → not always
+- Not verifying utilities access → expensive to connect
+
+PRICE DIFFERENCE:
+- Urban plots: €30-300/sqm (depending on location)
+- Rural/rústico: €1-15/sqm (much cheaper but can't build)
+- The price difference reflects buildability!`,
+    category: "property-types",
+    tags: ["construction", "land", "terreno", "urbano", "rustico", "building", "permit", "PDM", "construção", "lote", "plot"],
+  },
+  {
     id: "ruins-renovation",
     title: "Buying and Renovating Ruins in Portugal",
     content: `Ruins can be excellent value but require careful consideration:

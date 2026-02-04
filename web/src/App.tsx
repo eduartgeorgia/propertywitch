@@ -155,6 +155,14 @@ const App = () => {
   
   // AbortController for cancelling requests
   const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // Ref for auto-scrolling messages
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
 
   // Stop the current request
   const handleStop = useCallback(() => {
@@ -886,6 +894,7 @@ const App = () => {
                 <LoadingDots />
               </div>
             )}
+            <div ref={messagesEndRef} />
           </div>
 
           <div className="location">
