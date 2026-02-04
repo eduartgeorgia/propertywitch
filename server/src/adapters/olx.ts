@@ -206,6 +206,44 @@ function mapOLXListingToListing(olxListing: OLXListing): Listing {
   };
 }
 
+/**
+ * Fetch with retry and timeout for better reliability
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 3,
+  timeoutMs = 15000
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      lastError = error as Error;
+      console.log(`[OLX] Fetch attempt ${attempt}/${maxRetries} failed: ${lastError.message}`);
+      
+      if (attempt < maxRetries) {
+        // Exponential backoff: 1s, 2s, 4s
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  throw lastError || new Error("Fetch failed after retries");
+}
+
 async function fetchOLXListings(
   categoryId: number,
   options: {
@@ -235,7 +273,7 @@ async function fetchOLXListings(
 
   const url = `https://www.olx.pt/api/v1/offers?${params.toString()}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     headers: {
       Accept: "application/json",
       "User-Agent": "Mozilla/5.0 (compatible; AIPA/1.0)",

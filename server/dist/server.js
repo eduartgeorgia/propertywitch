@@ -406,6 +406,29 @@ function mapOLXListingToListing(olxListing) {
     lastSeenAt: olxListing.last_refresh_time || olxListing.created_time
   };
 }
+async function fetchWithRetry(url, options, maxRetries = 3, timeoutMs = 15e3) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      lastError = error;
+      console.log(`[OLX] Fetch attempt ${attempt}/${maxRetries} failed: ${lastError.message}`);
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt - 1) * 1e3;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError || new Error("Fetch failed after retries");
+}
 async function fetchOLXListings(categoryId, options = {}) {
   const params = new URLSearchParams();
   params.set("category_id", String(categoryId));
@@ -423,7 +446,7 @@ async function fetchOLXListings(categoryId, options = {}) {
     params.set("filter_float_price:to", String(options.maxPrice));
   }
   const url = `https://www.olx.pt/api/v1/offers?${params.toString()}`;
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     headers: {
       Accept: "application/json",
       "User-Agent": "Mozilla/5.0 (compatible; AIPA/1.0)"
