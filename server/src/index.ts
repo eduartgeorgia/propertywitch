@@ -11,7 +11,9 @@ import trainingRouter from "./routes/training";
 import agentRouter from "./routes/agent";
 import indexListingsRouter from "./routes/index-listings";
 import threadsRouter from "./routes/threads";
+import indexerRouter from "./routes/indexer";
 import { initializeRAG } from "./services/rag/index";
+import { startScheduledIndexer } from "./services/scheduledIndexer";
 
 const app = express();
 
@@ -26,6 +28,7 @@ app.use("/api", ragRouter);
 app.use("/api", trainingRouter);
 app.use("/api", agentRouter);
 app.use("/api", threadsRouter);
+app.use("/api", indexerRouter);
 app.use("/api/index", indexListingsRouter);
 
 app.use("/reports", express.static(path.resolve(APP_CONFIG.reportsDir)));
@@ -40,9 +43,14 @@ const startServer = async () => {
     console.log("Initializing RAG system...");
     await initializeRAG();
     console.log("RAG system ready");
+    
+    // Start scheduled indexer for live OLX listings
+    console.log("Starting scheduled OLX indexer...");
+    startScheduledIndexer();
+    console.log("Scheduled indexer started (runs every 4 hours)");
   } catch (error) {
-    console.error("RAG initialization warning:", error);
-    // Don't fail startup, RAG is optional
+    console.error("Initialization warning:", error);
+    // Don't fail startup, these are optional
   }
   
   app.listen(APP_CONFIG.port, () => {

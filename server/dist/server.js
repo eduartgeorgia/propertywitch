@@ -22,7 +22,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/index.ts
-var import_express10 = __toESM(require("express"));
+var import_express11 = __toESM(require("express"));
 var import_cors = __toESM(require("cors"));
 var import_node_path4 = __toESM(require("node:path"));
 
@@ -5100,10 +5100,207 @@ router9.get("/threads-stats", (_req, res) => {
 });
 var threads_default = router9;
 
+// src/routes/indexer.ts
+var import_express10 = require("express");
+
+// src/services/scheduledIndexer.ts
+var LOCATIONS_TO_INDEX = [
+  { name: "Lisbon", lat: 38.7223, lng: -9.1393 },
+  { name: "Porto", lat: 41.1579, lng: -8.6291 },
+  { name: "Algarve", lat: 37.0179, lng: -7.9304 },
+  { name: "Cascais", lat: 38.6979, lng: -9.4215 },
+  { name: "Sintra", lat: 38.8029, lng: -9.3817 },
+  { name: "Braga", lat: 41.5454, lng: -8.4265 },
+  { name: "Coimbra", lat: 40.2033, lng: -8.4103 },
+  { name: "\xC9vora", lat: 38.5714, lng: -7.9135 },
+  { name: "Faro", lat: 37.0194, lng: -7.9322 },
+  { name: "Vila Nova de Gaia", lat: 41.1239, lng: -8.6118 }
+];
+var SEARCH_QUERIES = [
+  "apartments for sale",
+  "houses for sale",
+  "land for construction",
+  "terreno urbano",
+  "moradia",
+  "apartamento",
+  "villa with pool",
+  "quinta",
+  "property investment"
+];
+var CONFIG = {
+  // Interval between full index runs (in milliseconds)
+  indexInterval: 4 * 60 * 60 * 1e3,
+  // 4 hours
+  // Delay between individual searches to avoid rate limiting
+  searchDelay: 5e3,
+  // 5 seconds
+  // Maximum listings to index per run
+  maxListingsPerRun: 500,
+  // Price ranges to search
+  priceRanges: [
+    { min: 0, max: 1e5 },
+    { min: 1e5, max: 3e5 },
+    { min: 3e5, max: 5e5 },
+    { min: 5e5, max: void 0 }
+  ]
+};
+var indexingInProgress = false;
+var lastIndexTime = null;
+var totalIndexedCount = 0;
+var schedulerInterval = null;
+async function fetchListings(query, location, priceRange) {
+  const allListings = [];
+  for (const adapter2 of ADAPTERS) {
+    try {
+      const listings = await adapter2.searchListings({
+        query,
+        priceRange,
+        userLocation: {
+          label: location.name,
+          lat: location.lat,
+          lng: location.lng,
+          currency: "EUR"
+        }
+      });
+      allListings.push(...listings);
+    } catch (error) {
+      console.error(`[Indexer] Error fetching from ${adapter2.siteId}:`, error);
+    }
+  }
+  return allListings;
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function runIndexingCycle() {
+  if (indexingInProgress) {
+    return { success: false, indexed: 0, error: "Indexing already in progress" };
+  }
+  indexingInProgress = true;
+  const startTime = Date.now();
+  const allListings = [];
+  const seenIds = /* @__PURE__ */ new Set();
+  console.log("[Indexer] Starting scheduled indexing cycle...");
+  try {
+    for (const location of LOCATIONS_TO_INDEX) {
+      for (const query of SEARCH_QUERIES.slice(0, 3)) {
+        for (const priceRange of CONFIG.priceRanges.slice(0, 2)) {
+          if (allListings.length >= CONFIG.maxListingsPerRun) {
+            console.log(`[Indexer] Reached max listings (${CONFIG.maxListingsPerRun}), stopping`);
+            break;
+          }
+          try {
+            console.log(`[Indexer] Fetching: "${query}" in ${location.name} (\u20AC${priceRange.min || 0}-${priceRange.max || "any"})`);
+            const listings = await fetchListings(query, location, priceRange);
+            for (const listing of listings) {
+              if (!seenIds.has(listing.id)) {
+                seenIds.add(listing.id);
+                allListings.push(listing);
+              }
+            }
+            console.log(`[Indexer] Found ${listings.length} listings, total unique: ${allListings.length}`);
+            await sleep(CONFIG.searchDelay);
+          } catch (error) {
+            console.error(`[Indexer] Error in search:`, error);
+          }
+        }
+        if (allListings.length >= CONFIG.maxListingsPerRun) break;
+      }
+      if (allListings.length >= CONFIG.maxListingsPerRun) break;
+    }
+    if (allListings.length > 0) {
+      console.log(`[Indexer] Indexing ${allListings.length} unique listings...`);
+      await indexListings(allListings);
+      totalIndexedCount += allListings.length;
+    }
+    lastIndexTime = /* @__PURE__ */ new Date();
+    const duration = Math.round((Date.now() - startTime) / 1e3);
+    console.log(`[Indexer] Indexing cycle complete. Indexed ${allListings.length} listings in ${duration}s`);
+    return { success: true, indexed: allListings.length };
+  } catch (error) {
+    console.error("[Indexer] Error during indexing cycle:", error);
+    return { success: false, indexed: 0, error: String(error) };
+  } finally {
+    indexingInProgress = false;
+  }
+}
+function startScheduledIndexer() {
+  if (schedulerInterval) {
+    console.log("[Indexer] Scheduler already running");
+    return;
+  }
+  console.log(`[Indexer] Starting scheduler (interval: ${CONFIG.indexInterval / 1e3 / 60} minutes)`);
+  setTimeout(() => {
+    console.log("[Indexer] Running initial indexing cycle...");
+    runIndexingCycle().catch((err) => console.error("[Indexer] Initial cycle error:", err));
+  }, 3e4);
+  schedulerInterval = setInterval(() => {
+    console.log("[Indexer] Running scheduled indexing cycle...");
+    runIndexingCycle().catch((err) => console.error("[Indexer] Scheduled cycle error:", err));
+  }, CONFIG.indexInterval);
+}
+function stopScheduledIndexer() {
+  if (schedulerInterval) {
+    clearInterval(schedulerInterval);
+    schedulerInterval = null;
+    console.log("[Indexer] Scheduler stopped");
+  }
+}
+function getIndexerStatus() {
+  let nextRunIn = null;
+  if (schedulerInterval && lastIndexTime) {
+    const nextRun = lastIndexTime.getTime() + CONFIG.indexInterval;
+    const msUntilNext = nextRun - Date.now();
+    if (msUntilNext > 0) {
+      const minutes = Math.floor(msUntilNext / 1e3 / 60);
+      const hours = Math.floor(minutes / 60);
+      nextRunIn = hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+    }
+  }
+  return {
+    running: schedulerInterval !== null,
+    indexingInProgress,
+    lastIndexTime: lastIndexTime?.toISOString() || null,
+    totalIndexed: totalIndexedCount,
+    nextRunIn,
+    config: CONFIG
+  };
+}
+async function triggerIndexing() {
+  return runIndexingCycle();
+}
+
+// src/routes/indexer.ts
+var router10 = (0, import_express10.Router)();
+router10.get("/indexer/status", (_req, res) => {
+  const status = getIndexerStatus();
+  return res.json(status);
+});
+router10.post("/indexer/start", (_req, res) => {
+  startScheduledIndexer();
+  const status = getIndexerStatus();
+  return res.json({ message: "Indexer started", ...status });
+});
+router10.post("/indexer/stop", (_req, res) => {
+  stopScheduledIndexer();
+  const status = getIndexerStatus();
+  return res.json({ message: "Indexer stopped", ...status });
+});
+router10.post("/indexer/run", async (_req, res) => {
+  try {
+    const result = await triggerIndexing();
+    const status = getIndexerStatus();
+    return res.json({ ...result, ...status });
+  } catch (error) {
+    return res.status(500).json({ error: String(error) });
+  }
+});
+var indexer_default = router10;
+
 // src/index.ts
-var app = (0, import_express10.default)();
+var app = (0, import_express11.default)();
 app.use((0, import_cors.default)());
-app.use(import_express10.default.json({ limit: "2mb" }));
+app.use(import_express11.default.json({ limit: "2mb" }));
 app.use("/api", search_default);
 app.use("/api", report_default);
 app.use("/api", diagnostics_default);
@@ -5112,8 +5309,9 @@ app.use("/api", rag_default);
 app.use("/api", training_default);
 app.use("/api", agent_default);
 app.use("/api", threads_default);
+app.use("/api", indexer_default);
 app.use("/api/index", index_listings_default);
-app.use("/reports", import_express10.default.static(import_node_path4.default.resolve(APP_CONFIG.reportsDir)));
+app.use("/reports", import_express11.default.static(import_node_path4.default.resolve(APP_CONFIG.reportsDir)));
 app.get("/", (_req, res) => {
   res.json({ status: "ok", name: "ai-property-assistant-server" });
 });
@@ -5122,8 +5320,11 @@ var startServer = async () => {
     console.log("Initializing RAG system...");
     await initializeRAG();
     console.log("RAG system ready");
+    console.log("Starting scheduled OLX indexer...");
+    startScheduledIndexer();
+    console.log("Scheduled indexer started (runs every 4 hours)");
   } catch (error) {
-    console.error("RAG initialization warning:", error);
+    console.error("Initialization warning:", error);
   }
   app.listen(APP_CONFIG.port, () => {
     console.log(`Server running on http://localhost:${APP_CONFIG.port}`);
