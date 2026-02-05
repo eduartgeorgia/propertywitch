@@ -941,7 +941,7 @@ const App = () => {
                   handleStop();
                 }
               }}
-              placeholder="e.g., Find me land under 30000 euros (Shift+Enter for new line)"
+              placeholder="e.g., Find me land under €30,000..."
               rows={1}
             />
             {isLoading ? (

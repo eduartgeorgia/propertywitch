@@ -578,12 +578,23 @@ body {
   border: 1px solid #d9d2c7;
   padding: 10px 12px;
   font-family: inherit;
-  font-size: inherit;
+  font-size: 14px;
   resize: none;
   min-height: 42px;
   max-height: 150px;
   overflow-y: auto;
+  overflow-x: hidden;
   line-height: 1.4;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.input-row textarea::placeholder {
+  color: #9a9a8e;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .input-row textarea:focus {

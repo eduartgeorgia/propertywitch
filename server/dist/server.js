@@ -2075,6 +2075,10 @@ IMPORTANT RULES:
 - For "under X" queries, set priceMax to X
 - For "around X" queries, set priceTarget to X
 - Always extract the numeric price value
+- IMPORTANT: Distinguish between PRICE (in EUR/\u20AC) and AREA (in m\xB2, m2, sqm, square meters)
+  - "1000 m2", "1000m\xB2", "1000 sqm" = AREA filter, NOT price
+  - "\u20AC1000", "1000 euros", "1000 EUR" = PRICE filter
+  - When user says "within 1000 m2 range" they mean land SIZE, not price
 
 Respond with ONLY valid JSON in this format:
 {
@@ -2086,6 +2090,9 @@ Respond with ONLY valid JSON in this format:
     "priceIntent": "under|over|between|exact|around|none",
     "currency": "EUR",
     "location": "Lisbon",
+    "areaMin": null,
+    "areaMax": null,
+    "areaTarget": null,
     "rawQuery": "original query"
   },
   "clarificationNeeded": false,
@@ -2485,7 +2492,13 @@ var detectIntent = async (message, conversationHistory, hasRecentResults) => {
     /(?:the\s+)?(?:\d+|two|three)\s+(?:closest|nearest|cheapest|best)\s*(?:to|ones?)?/i,
     /which\s+(?:one|ones?|listing|property|properties)\s+(?:is|are)\s+(?:closest|nearest|cheapest|best|biggest|smallest)/i,
     /(?:closest|nearest|cheapest|best)\s+(?:one|to|option|listing|property)/i,
-    /sort\s+(?:by|them\s+by)\s+(?:distance|price|size|area)/i
+    /sort\s+(?:by|them\s+by)\s+(?:distance|price|size|area)/i,
+    /narrow\s+(?:it\s+)?down\s+(?:to|within|by)/i,
+    // "narrow it down to...", "narrow down within..."
+    /filter\s+(?:by|to|for)\s+(?:\d+|size|area)/i,
+    // "filter by size", "filter to 1000m2"
+    /(?:only|just)\s+(?:show|the\s+ones?)\s+(?:with|around|under|over)\s+\d+\s*(?:m2|m²|sqm)?/i
+    // "only show ones around 1000m2"
   ];
   if (hasRecentResults) {
     for (const pattern of pickSelectPatterns) {
@@ -3078,8 +3091,10 @@ Available listings:
 ${JSON.stringify(listingData, null, 2)}
 
 TASK: Select the ${count} best listings that match the user's criteria.
-- If they want "closest to center", prioritize by distance (lower distanceKm = closer)
-- If they want "cheapest", prioritize by price
+- If they want "closest to center" or "nearest", prioritize by distance (lower distanceKm = closer)
+- If they want "cheapest", prioritize by price (lower = better)
+- If they mention "m2", "m\xB2", "sqm", "square meters", filter/sort by land AREA (area field in listings)
+- "within 1000 m2" or "around 1000 m2" means filter listings with area close to 1000 square meters
 - If they want "best", use overall value (price/quality/location balance)
 
 Respond with ONLY a valid JSON object:
@@ -3102,8 +3117,19 @@ Respond with ONLY a valid JSON object:
   } catch (error) {
     console.error("Error picking listings with AI:", error);
   }
+  const lowerQuery = userQuery.toLowerCase();
   const sortedListings = [...listings].sort((a, b) => {
-    if (userQuery.toLowerCase().includes("closest") || userQuery.toLowerCase().includes("center")) {
+    if (lowerQuery.includes("m2") || lowerQuery.includes("m\xB2") || lowerQuery.includes("sqm") || lowerQuery.includes("square")) {
+      const areaMatch = userQuery.match(/(\d+)\s*(?:m2|m²|sqm)/i);
+      if (areaMatch) {
+        const targetArea = parseInt(areaMatch[1]);
+        const diffA = Math.abs((a.areaSqm || 0) - targetArea);
+        const diffB = Math.abs((b.areaSqm || 0) - targetArea);
+        return diffA - diffB;
+      }
+      return (a.areaSqm || 0) - (b.areaSqm || 0);
+    }
+    if (lowerQuery.includes("closest") || lowerQuery.includes("nearest") || lowerQuery.includes("center")) {
       return (a.distanceKm || 999) - (b.distanceKm || 999);
     }
     return (a.priceEur || 0) - (b.priceEur || 0);
