@@ -158,6 +158,19 @@ router.post("/chat", async (req, res) => {
     let intentType: "search" | "conversation" | "follow_up" | "refine_search" | "show_listings" | "pick_from_results" = "search";
     let confirmationContext: string | undefined;
     
+    // Variables to store AI-extracted filters
+    let extractedFilters: {
+      location?: string;
+      propertyType?: string;
+      priceMin?: number;
+      priceMax?: number;
+      areaMin?: number;
+      areaMax?: number;
+      bedrooms?: number;
+      keywords?: string[];
+    } | undefined;
+    let selectionCriteria: string | undefined;
+    
     if (mode === "auto") {
       t0 = Date.now();
       const hasRecentResults = !!lastSearchContext;
@@ -165,6 +178,14 @@ router.post("/chat", async (req, res) => {
       timings.intentDetection = Date.now() - t0;
       intentType = intent.intent;
       confirmationContext = intent.confirmationContext;
+      extractedFilters = intent.extractedFilters;
+      selectionCriteria = intent.selectionCriteria;
+      
+      console.log(`[Chat] AI Intent: ${intentType} (${intent.confidence}) - ${intent.reason}`);
+      if (extractedFilters) {
+        console.log(`[Chat] Extracted filters:`, extractedFilters);
+      }
+      
       // Trigger search for: search, refine_search, OR show_listings intents (but NOT pick_from_results - handled separately)
       shouldSearch = (intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings") && intent.intent !== "pick_from_results";
     } else if (mode === "chat") {
@@ -177,7 +198,9 @@ router.post("/chat", async (req, res) => {
       const storedListings = getLastSearchResults(threadId);
       if (storedListings && storedListings.length > 0) {
         t0 = Date.now();
-        const { selectedListings, explanation } = await pickBestListings(message, storedListings);
+        // Pass both the user message and AI-extracted selection criteria
+        const filterCriteria = selectionCriteria || message;
+        const { selectedListings, explanation } = await pickBestListings(filterCriteria, storedListings);
         timings.pickListings = Date.now() - t0;
         
         if (selectedListings.length > 0) {

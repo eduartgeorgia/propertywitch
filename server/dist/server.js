@@ -2115,20 +2115,6 @@ IMPORTANT RULES:
 - If information isn't in the context, say you're not certain
 - Be helpful and conversational
 - Keep responses focused and informative`;
-var INTENT_DETECTION_PROMPT = `Analyze this message in the context of the conversation and determine the user's intent.
-
-Respond with ONLY valid JSON:
-{
-  "intent": "search" | "conversation" | "follow_up" | "refine_search",
-  "reason": "brief explanation",
-  "isPropertySearch": true/false
-}
-
-Intent types:
-- "search": User wants to search for NEW properties (mentions specific criteria like price, location, property type)
-- "conversation": General chat, questions about Portugal, real estate advice, greetings, etc.
-- "follow_up": User is asking about or referring to previous search results
-- "refine_search": User wants to adjust the previous search (cheaper, different area, etc.)`;
 var detectBackend2 = async () => {
   if (GROQ_API_KEY2 && GROQ_API_KEY2.startsWith("gsk_")) {
     console.log("AI Backend: Groq API (cloud) - PRIMARY");
@@ -2452,117 +2438,141 @@ Write a brief, helpful response (2-3 sentences) about these results. Be conversa
     return matchType === "exact" ? `Found ${listingsCount} listings matching your search.` : `No exact matches at that price. Found ${listingsCount} alternatives within the acceptable range.`;
   }
 };
+var AI_INTENT_PROMPT = `You are an intent classifier for a Portuguese real estate assistant called "Property Witch".
+
+Analyze the user's message IN CONTEXT of the conversation to determine their intent.
+
+POSSIBLE INTENTS:
+1. "search" - User wants to find NEW properties (new search query with specific criteria)
+2. "refine_search" - User wants to MODIFY their previous search (add filters, change location, adjust price)
+3. "pick_from_results" - User wants to SELECT/FILTER from EXISTING results (pick best, closest, cheapest, narrow down, filter by size)
+4. "conversation" - User wants INFORMATION about buying process, taxes, laws, regions, or general chat
+5. "follow_up" - User is asking about or referring to previous search results
+6. "show_listings" - User wants to see/display the current results again
+
+CRITICAL RULES:
+- If user mentions m\xB2, m2, sqm, "square meters", "hectares" \u2192 this is about LAND SIZE (area), NOT price
+- "narrow down within 1000 m2" means filter by AREA SIZE, not price
+- "1000 euros" or "\u20AC1000" is PRICE, "1000 m2" is AREA
+- If user has recent search results and asks to filter/narrow/pick \u2192 "pick_from_results"
+- If user says "yes", "ok", "sure" after assistant suggested something \u2192 check what was suggested
+- Questions about taxes, documents, visas, buying process \u2192 "conversation"
+- New property search with location/price/type \u2192 "search"
+
+Respond with ONLY valid JSON:
+{
+  "intent": "search" | "refine_search" | "pick_from_results" | "conversation" | "follow_up" | "show_listings",
+  "isPropertySearch": true/false,
+  "confidence": 0.0-1.0,
+  "reason": "brief explanation of why you chose this intent",
+  "extractedFilters": {
+    "location": "string or null",
+    "propertyType": "land|house|apartment|villa|commercial or null",
+    "priceMin": number or null,
+    "priceMax": number or null,
+    "areaMin": number or null (in square meters),
+    "areaMax": number or null (in square meters),
+    "bedrooms": number or null,
+    "keywords": ["array", "of", "relevant", "keywords"]
+  },
+  "selectionCriteria": "what the user wants to filter/sort by (only for pick_from_results intent)"
+}`;
 var detectIntent = async (message, conversationHistory, hasRecentResults) => {
   const health = await checkAIHealth();
   const lower = message.toLowerCase().trim();
-  const confirmationPatterns = /^(yes|yeah|yep|yup|sure|please|ok|okay|go ahead|do it|definitely|absolutely|of course|please do|yes please)\.?$/i;
-  if (confirmationPatterns.test(lower)) {
-    if (conversationHistory && conversationHistory.length > 0) {
-      const lastAssistantMsg = [...conversationHistory].reverse().find((m) => m.role === "assistant");
-      if (lastAssistantMsg) {
-        const assistantLower = lastAssistantMsg.content.toLowerCase();
-        if (assistantLower.includes("search again") || assistantLower.includes("try searching") || assistantLower.includes("refine your search") || assistantLower.includes("would you like me to") || assistantLower.includes("shall i search") || assistantLower.includes("want me to search") || assistantLower.includes("focus on central") || assistantLower.includes("narrow down")) {
-          return { intent: "refine_search", isPropertySearch: true, confirmationContext: lastAssistantMsg.content };
-        }
+  const isSimpleConfirmation = /^(yes|yeah|yep|yup|sure|please|ok|okay|go ahead|do it|definitely|absolutely|of course|please do|yes please)\.?$/i.test(lower);
+  if (isSimpleConfirmation && conversationHistory && conversationHistory.length > 0) {
+    const lastAssistantMsg = [...conversationHistory].reverse().find((m) => m.role === "assistant");
+    if (lastAssistantMsg) {
+      const assistantLower = lastAssistantMsg.content.toLowerCase();
+      if (assistantLower.includes("search") || assistantLower.includes("narrow") || assistantLower.includes("filter") || assistantLower.includes("would you like")) {
+        return {
+          intent: "refine_search",
+          isPropertySearch: true,
+          confidence: 0.8,
+          reason: "User confirmed assistant's suggestion",
+          confirmationContext: lastAssistantMsg.content
+        };
       }
     }
-    return { intent: "follow_up", isPropertySearch: false };
-  }
-  const searchIndicators = [
-    /(?:find|show|search|looking for|want|need)\s+(?:me\s+)?(?:a\s+)?(?:land|house|apartment|villa|property|properties|flat)/i,
-    /(?:under|below|around|about)\s+[\d€$£]+/i,
-    /(?:in|near|around)\s+[A-Z][a-z]+.*(?:for|under|around)/i,
-    /^(?:land|house|apartment|properties?)\s+(?:in|near|under|for)/i
-  ];
-  const conversationIndicators = [
-    /^(?:hi|hello|hey|thanks|thank you|ok|okay|great|nice|good|how|what|why|when|who|where|can you|could you|tell me|explain)/i,
-    /\?$/,
-    /(?:about|advice|recommend|suggest|help me understand|what do you think)/i
-  ];
-  const showListingsPatterns = [
-    /(?:show|display|list|see|view)\s+(?:me\s+)?(?:the|those|these|all|some)?\s*(?:listing|listings|properties|options|results)/i,
-    /(?:show|give|display)\s+(?:me\s+)?(?:the|those|these)?\s*(?:best|top|cheapest|most expensive)/i,
-    /(?:best|top|cheapest)\s+(?:one|ones|listing|listings|properties|options)/i,
-    /(?:for sale|to buy|available)/i,
-    /^show\s+(?:me\s+)?(?:them|those|these|the\s+listings?)/i
-  ];
-  const pickSelectPatterns = [
-    /(?:pick|select|choose|get|give me|show me)\s+(\d+|one|two|three|four|five|a few|some|the best|top)\s*(?:of them|from them|that|which|listings?|properties?|options?|ones?)?/i,
-    /(?:pick|select|choose)\s+(?:the\s+)?(?:\d+|one|two|three|four|five)\s*(?:closest|nearest|cheapest|best|top)/i,
-    /(?:the\s+)?(?:\d+|two|three)\s+(?:closest|nearest|cheapest|best)\s*(?:to|ones?)?/i,
-    /which\s+(?:one|ones?|listing|property|properties)\s+(?:is|are)\s+(?:closest|nearest|cheapest|best|biggest|smallest)/i,
-    /(?:closest|nearest|cheapest|best)\s+(?:one|to|option|listing|property)/i,
-    /sort\s+(?:by|them\s+by)\s+(?:distance|price|size|area)/i,
-    /narrow\s+(?:it\s+)?down\s+(?:to|within|by)/i,
-    // "narrow it down to...", "narrow down within..."
-    /filter\s+(?:by|to|for)\s+(?:\d+|size|area)/i,
-    // "filter by size", "filter to 1000m2"
-    /(?:only|just)\s+(?:show|the\s+ones?)\s+(?:with|around|under|over)\s+\d+\s*(?:m2|m²|sqm)?/i
-    // "only show ones around 1000m2"
-  ];
-  if (hasRecentResults) {
-    for (const pattern of pickSelectPatterns) {
-      if (pattern.test(message)) {
-        return { intent: "pick_from_results", isPropertySearch: true };
-      }
-    }
-  }
-  for (const pattern of searchIndicators) {
-    if (pattern.test(message)) {
-      return { intent: "search", isPropertySearch: true };
-    }
-  }
-  if (hasRecentResults) {
-    for (const pattern of showListingsPatterns) {
-      if (pattern.test(message)) {
-        return { intent: "show_listings", isPropertySearch: true };
-      }
-    }
-  }
-  if (hasRecentResults) {
-    const followUpPatterns = [
-      /(?:cheaper|more expensive|different|another|other)\s+(?:one|ones|option|options|listing|listings)?/i,
-      /(?:first|second|third|last)\s+(?:one|listing|property)/i,
-      /^(?:and|also|what about|how about)/i
-    ];
-    for (const pattern of followUpPatterns) {
-      if (pattern.test(message)) {
-        if (lower.includes("cheaper") || lower.includes("expensive") || lower.includes("different") || lower.includes("another")) {
-          return { intent: "refine_search", isPropertySearch: true };
-        }
-        return { intent: "follow_up", isPropertySearch: false };
-      }
-    }
-  }
-  for (const pattern of conversationIndicators) {
-    if (pattern.test(message) && !searchIndicators.some((p) => p.test(message))) {
-      return { intent: "conversation", isPropertySearch: false };
-    }
+    return {
+      intent: "follow_up",
+      isPropertySearch: false,
+      confidence: 0.6,
+      reason: "Simple confirmation without clear context"
+    };
   }
   if (health.available) {
     try {
-      const contextInfo = conversationHistory && conversationHistory.length > 0 ? `
-Recent conversation:
-${conversationHistory.slice(-4).map((m) => `${m.role}: ${m.content}`).join("\n")}
-` : "";
-      const prompt = `${contextInfo}
-User message: "${message}"
+      const recentHistory = conversationHistory?.slice(-6) || [];
+      const contextSummary = recentHistory.length > 0 ? recentHistory.map((m) => `${m.role.toUpperCase()}: ${m.content.substring(0, 300)}`).join("\n") : "(new conversation)";
+      const prompt = `${AI_INTENT_PROMPT}
 
-Determine the intent.`;
-      const response = await callAIWithFallback(prompt, INTENT_DETECTION_PROMPT);
+CONVERSATION CONTEXT:
+${contextSummary}
+
+USER HAS EXISTING SEARCH RESULTS: ${hasRecentResults ? "YES - User can filter/pick from these results" : "NO - User needs to search first"}
+
+USER'S NEW MESSAGE: "${message}"
+
+Analyze and respond with JSON only:`;
+      const response = await callAIWithFallback(prompt, "You are a precise intent classifier. Respond with valid JSON only.");
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
+        console.log(`[Intent AI] Detected: ${parsed.intent} (${parsed.confidence}) - ${parsed.reason}`);
         return {
           intent: parsed.intent || "search",
-          isPropertySearch: parsed.isPropertySearch ?? true
+          isPropertySearch: parsed.isPropertySearch ?? true,
+          confidence: parsed.confidence || 0.7,
+          reason: parsed.reason || "AI classification",
+          extractedFilters: parsed.extractedFilters,
+          selectionCriteria: parsed.selectionCriteria
         };
       }
     } catch (error) {
-      console.error("Intent detection failed:", error);
+      console.error("[Intent AI] Detection failed:", error);
     }
   }
-  return { intent: "search", isPropertySearch: true };
+  console.log("[Intent] AI unavailable, using fallback patterns");
+  if (/\d+\s*(?:m2|m²|sqm|square\s*met)/i.test(message) && hasRecentResults) {
+    return {
+      intent: "pick_from_results",
+      isPropertySearch: true,
+      confidence: 0.7,
+      reason: "Fallback: area filter detected with existing results"
+    };
+  }
+  if (/(?:find|search|looking for)\s+(?:me\s+)?(?:a\s+)?(?:land|house|apartment|property)/i.test(message)) {
+    return {
+      intent: "search",
+      isPropertySearch: true,
+      confidence: 0.8,
+      reason: "Fallback: search pattern detected"
+    };
+  }
+  if (hasRecentResults && /(?:narrow|filter|pick|select|closest|cheapest|best|which one)/i.test(message)) {
+    return {
+      intent: "pick_from_results",
+      isPropertySearch: true,
+      confidence: 0.7,
+      reason: "Fallback: filter pattern detected with existing results"
+    };
+  }
+  if (/\?$|^(?:what|how|why|when|where|who|can you|tell me|explain)/i.test(message)) {
+    return {
+      intent: "conversation",
+      isPropertySearch: false,
+      confidence: 0.6,
+      reason: "Fallback: question pattern detected"
+    };
+  }
+  return {
+    intent: "search",
+    isPropertySearch: true,
+    confidence: 0.5,
+    reason: "Fallback: defaulting to search"
+  };
 };
 var chatWithAI = async (message, conversationHistory, searchContext, conversationId) => {
   const health = await checkAIHealth();
@@ -4029,6 +4039,8 @@ router4.post("/chat", async (req, res) => {
     let shouldSearch = mode === "search";
     let intentType = "search";
     let confirmationContext;
+    let extractedFilters;
+    let selectionCriteria;
     if (mode === "auto") {
       t0 = Date.now();
       const hasRecentResults = !!lastSearchContext;
@@ -4036,6 +4048,12 @@ router4.post("/chat", async (req, res) => {
       timings.intentDetection = Date.now() - t0;
       intentType = intent.intent;
       confirmationContext = intent.confirmationContext;
+      extractedFilters = intent.extractedFilters;
+      selectionCriteria = intent.selectionCriteria;
+      console.log(`[Chat] AI Intent: ${intentType} (${intent.confidence}) - ${intent.reason}`);
+      if (extractedFilters) {
+        console.log(`[Chat] Extracted filters:`, extractedFilters);
+      }
       shouldSearch = (intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings") && intent.intent !== "pick_from_results";
     } else if (mode === "chat") {
       shouldSearch = false;
@@ -4045,7 +4063,8 @@ router4.post("/chat", async (req, res) => {
       const storedListings = getLastSearchResults(threadId);
       if (storedListings && storedListings.length > 0) {
         t0 = Date.now();
-        const { selectedListings, explanation } = await pickBestListings(message, storedListings);
+        const filterCriteria = selectionCriteria || message;
+        const { selectedListings, explanation } = await pickBestListings(filterCriteria, storedListings);
         timings.pickListings = Date.now() - t0;
         if (selectedListings.length > 0) {
           const aiSummary2 = explanation;
