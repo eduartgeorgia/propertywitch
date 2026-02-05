@@ -1681,6 +1681,9 @@ export const pickBestListings = async (
 
   // Limit to available listings
   count = Math.min(count, listings.length);
+  
+  // Determine analysis depth based on expected results
+  const isDetailed = count <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
 
   const health = await checkAIHealth();
   if (!health.available) {
@@ -1703,7 +1706,19 @@ export const pickBestListings = async (
     baths: l.baths,
     area: l.areaSqm,
     propertyType: l.propertyType,
+    description: l.description?.slice(0, 200) || '',
   }));
+
+  // Build explanation requirements based on result count
+  const explanationGuidance = isDetailed
+    ? `Provide a COMPREHENSIVE explanation (5-8 sentences) covering:
+       - Why each selected property is a strong match
+       - Price analysis (value for money, €/m² if applicable)
+       - Location benefits for each property
+       - Size/space considerations
+       - Any standout features or potential concerns
+       - How these compare to other options that weren't selected`
+    : `Provide a brief explanation (2-3 sentences) on why these listings were selected`;
 
   const pickPrompt = `You are helping a user select properties from their search results.
 
@@ -1717,12 +1732,15 @@ TASK: Select the ${count} best listings that match the user's criteria.
 - If they want "cheapest", prioritize by price (lower = better)
 - If they mention "m2", "m²", "sqm", "square meters", filter/sort by land AREA (area field in listings)
 - "within 1000 m2" or "around 1000 m2" means filter listings with area close to 1000 square meters
+- If they say "only 45m2" or "exactly 60m2", select ONLY listings with that exact area
 - If they want "best", use overall value (price/quality/location balance)
+
+${explanationGuidance}
 
 Respond with ONLY a valid JSON object:
 {
   "selectedIndices": [0, 3],  // Array of indices from the listings
-  "explanation": "I selected these because... (2-3 sentences explaining why these are the best choices)"
+  "explanation": "Your comprehensive analysis here..."
 }`;
 
   try {
