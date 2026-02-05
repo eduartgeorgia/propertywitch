@@ -1243,15 +1243,16 @@ Return a JSON array with brief analysis (2-3 sentences each):
 export const filterListingsByRelevance = async (
   userQuery: string,
   listings: ListingForAnalysis[],
-  options?: { skipAI?: boolean; timeout?: number }
+  options?: { skipAI?: boolean; timeout?: number; forceDetailed?: boolean }
 ): Promise<ListingRelevanceResult[]> => {
   const skipAI = options?.skipAI ?? !AI_ANALYSIS_CONFIG.enableAIAnalysis;
   const timeout = options?.timeout ?? AI_ANALYSIS_CONFIG.analysisTimeoutMs;
+  const forceDetailed = options?.forceDetailed ?? false;
   
   // Fast path: skip AI analysis entirely if disabled or too many listings
   if (skipAI || listings.length > AI_ANALYSIS_CONFIG.maxListingsForAI) {
     console.log(`[AI Analysis] Using fast local analysis (skipAI=${skipAI}, listings=${listings.length})`);
-    return analyzeListingsLocally(userQuery, listings, false);
+    return analyzeListingsLocally(userQuery, listings, forceDetailed);
   }
 
   const health = await checkAIHealth();
@@ -1266,9 +1267,9 @@ export const filterListingsByRelevance = async (
     }));
   }
 
-  // Determine if we should do detailed analysis based on listing count
-  const isDetailed = listings.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
-  console.log(`[AI Analysis] Mode: ${isDetailed ? 'DETAILED' : 'BRIEF'} (${listings.length} listings, threshold: ${AI_ANALYSIS_CONFIG.detailedAnalysisThreshold})`);
+  // Determine if we should do detailed analysis based on listing count or force flag
+  const isDetailed = forceDetailed || listings.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
+  console.log(`[AI Analysis] Mode: ${isDetailed ? 'DETAILED' : 'BRIEF'} (${listings.length} listings, threshold: ${AI_ANALYSIS_CONFIG.detailedAnalysisThreshold}, forced: ${forceDetailed})`);
 
   // Build the appropriate prompt
   const prompt = buildAnalysisPrompt(userQuery, listings, isDetailed);
@@ -1637,7 +1638,7 @@ export const getRelevantListings = async <T extends ListingForAnalysis>(
   const relevanceMap = new Map(relevanceResults.map(r => [r.id, r]));
 
   // Filter to only relevant listings and sort by relevance score
-  return listings
+  let results = listings
     .map(listing => ({
       listing,
       relevance: relevanceMap.get(listing.id) || {
@@ -1649,6 +1650,28 @@ export const getRelevantListings = async <T extends ListingForAnalysis>(
     }))
     .filter(item => item.relevance.isRelevant)
     .sort((a, b) => b.relevance.relevanceScore - a.relevance.relevanceScore);
+
+  // If we ended up with ≤10 results but started with many more, 
+  // re-analyze these few results with detailed mode for better reasoning
+  const shouldReAnalyze = results.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold && 
+                          listings.length > AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
+  
+  if (shouldReAnalyze && results.length > 0) {
+    console.log(`[AI Analysis] Re-analyzing ${results.length} final results with detailed mode (started with ${listings.length})`);
+    
+    // Re-analyze just the final results with detailed prompts
+    const finalListings = results.map(r => r.listing);
+    const detailedResults = await filterListingsByRelevance(userQuery, finalListings, { forceDetailed: true });
+    const detailedMap = new Map(detailedResults.map(r => [r.id, r]));
+    
+    // Update results with detailed reasoning
+    results = results.map(item => ({
+      ...item,
+      relevance: detailedMap.get(item.listing.id) || item.relevance,
+    }));
+  }
+
+  return results;
 };
 
 /**

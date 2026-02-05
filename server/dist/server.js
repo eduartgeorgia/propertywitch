@@ -2845,9 +2845,10 @@ Return a JSON array with brief analysis (2-3 sentences each):
 var filterListingsByRelevance = async (userQuery, listings, options) => {
   const skipAI = options?.skipAI ?? !AI_ANALYSIS_CONFIG.enableAIAnalysis;
   const timeout = options?.timeout ?? AI_ANALYSIS_CONFIG.analysisTimeoutMs;
+  const forceDetailed = options?.forceDetailed ?? false;
   if (skipAI || listings.length > AI_ANALYSIS_CONFIG.maxListingsForAI) {
     console.log(`[AI Analysis] Using fast local analysis (skipAI=${skipAI}, listings=${listings.length})`);
-    return analyzeListingsLocally(userQuery, listings, false);
+    return analyzeListingsLocally(userQuery, listings, forceDetailed);
   }
   const health = await checkAIHealth();
   if (!health.available || listings.length === 0) {
@@ -2858,8 +2859,8 @@ var filterListingsByRelevance = async (userQuery, listings, options) => {
       reasoning: "AI unavailable - showing all results"
     }));
   }
-  const isDetailed = listings.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
-  console.log(`[AI Analysis] Mode: ${isDetailed ? "DETAILED" : "BRIEF"} (${listings.length} listings, threshold: ${AI_ANALYSIS_CONFIG.detailedAnalysisThreshold})`);
+  const isDetailed = forceDetailed || listings.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
+  console.log(`[AI Analysis] Mode: ${isDetailed ? "DETAILED" : "BRIEF"} (${listings.length} listings, threshold: ${AI_ANALYSIS_CONFIG.detailedAnalysisThreshold}, forced: ${forceDetailed})`);
   const prompt = buildAnalysisPrompt(userQuery, listings, isDetailed);
   try {
     console.log(`[AI Analysis] Analyzing ${listings.length} listings with ${health.backend} backend (timeout: ${timeout}ms)...`);
@@ -3127,7 +3128,7 @@ var getRelevantListings = async (userQuery, listings) => {
   if (listings.length === 0) return [];
   const relevanceResults = await filterListingsByRelevance(userQuery, listings);
   const relevanceMap = new Map(relevanceResults.map((r) => [r.id, r]));
-  return listings.map((listing) => ({
+  let results = listings.map((listing) => ({
     listing,
     relevance: relevanceMap.get(listing.id) || {
       id: listing.id,
@@ -3136,6 +3137,18 @@ var getRelevantListings = async (userQuery, listings) => {
       reasoning: "Default"
     }
   })).filter((item) => item.relevance.isRelevant).sort((a, b) => b.relevance.relevanceScore - a.relevance.relevanceScore);
+  const shouldReAnalyze = results.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold && listings.length > AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
+  if (shouldReAnalyze && results.length > 0) {
+    console.log(`[AI Analysis] Re-analyzing ${results.length} final results with detailed mode (started with ${listings.length})`);
+    const finalListings = results.map((r) => r.listing);
+    const detailedResults = await filterListingsByRelevance(userQuery, finalListings, { forceDetailed: true });
+    const detailedMap = new Map(detailedResults.map((r) => [r.id, r]));
+    results = results.map((item) => ({
+      ...item,
+      relevance: detailedMap.get(item.listing.id) || item.relevance
+    }));
+  }
+  return results;
 };
 var getRAGSystemStats = () => {
   return getRAGStats();
