@@ -3183,15 +3183,8 @@ var pickBestListings = async (userQuery, listings, count = 2) => {
     baths: l.baths,
     area: l.areaSqm,
     propertyType: l.propertyType,
-    description: l.description?.slice(0, 200) || ""
+    description: l.description?.slice(0, 300) || ""
   }));
-  const explanationGuidance = isDetailed ? `Provide a COMPREHENSIVE explanation (5-8 sentences) covering:
-       - Why each selected property is a strong match
-       - Price analysis (value for money, \u20AC/m\xB2 if applicable)
-       - Location benefits for each property
-       - Size/space considerations
-       - Any standout features or potential concerns
-       - How these compare to other options that weren't selected` : `Provide a brief explanation (2-3 sentences) on why these listings were selected`;
   const pickPrompt = `You are helping a user select properties from their search results.
 
 User request: "${userQuery}"
@@ -3207,12 +3200,22 @@ TASK: Select the ${count} best listings that match the user's criteria.
 - If they say "only 45m2" or "exactly 60m2", select ONLY listings with that exact area
 - If they want "best", use overall value (price/quality/location balance)
 
-${explanationGuidance}
+${isDetailed ? `IMPORTANT: For each selected listing, provide a DETAILED individual analysis (4-6 sentences) covering:
+- Why this property specifically matches the user's criteria
+- Price analysis (value for money, \u20AC/m\xB2 if applicable)
+- Location benefits
+- Size/space assessment
+- Key features and potential concerns
+- Recommendation` : `For each selected listing, provide a brief analysis (2-3 sentences).`}
 
 Respond with ONLY a valid JSON object:
 {
-  "selectedIndices": [0, 3],  // Array of indices from the listings
-  "explanation": "Your comprehensive analysis here..."
+  "selectedIndices": [0, 3],
+  "listingAnalyses": {
+    "0": "Detailed analysis for the listing at index 0...",
+    "3": "Detailed analysis for the listing at index 3..."
+  },
+  "explanation": "Overall summary of why these listings were chosen (2-3 sentences)."
 }`;
   try {
     const response = await callAIWithFallback(pickPrompt, "You are a helpful real estate assistant that selects the best properties based on user criteria.");
@@ -3220,7 +3223,15 @@ Respond with ONLY a valid JSON object:
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       const indices = parsed.selectedIndices || [];
-      const selectedListings = indices.filter((i) => i >= 0 && i < listings.length).slice(0, count).map((i) => listings[i]);
+      const listingAnalyses = parsed.listingAnalyses || {};
+      const selectedListings = indices.filter((i) => i >= 0 && i < listings.length).slice(0, count).map((i) => {
+        const listing = { ...listings[i] };
+        const analysis = listingAnalyses[String(i)] || listingAnalyses[i];
+        if (analysis && typeof analysis === "string" && analysis.length > 50) {
+          listing.aiReasoning = analysis;
+        }
+        return listing;
+      });
       return {
         selectedListings,
         explanation: parsed.explanation || `Here are the ${count} best options based on your criteria.`
