@@ -439,6 +439,14 @@ const App = () => {
   const handleSearch = async () => {
     if (!query.trim()) return;
     
+    // Capture the message and clear input immediately
+    const userMessage = query;
+    setQuery("");
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
@@ -446,7 +454,6 @@ const App = () => {
     setIsLoading(true);
     setReportUrl(null);
     
-    const userMessage = query;
     setMessages((prev) => [...prev, { role: "user", text: userMessage }]);
 
     // Build conversation history from recent messages (last 10)
@@ -595,11 +602,6 @@ const App = () => {
     } finally {
       abortControllerRef.current = null;
       setIsLoading(false);
-      setQuery("");
-      // Reset textarea height
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
     }
   };
 

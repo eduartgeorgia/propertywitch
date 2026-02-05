@@ -2772,27 +2772,17 @@ var AI_ANALYSIS_CONFIG = {
   // Timeout for AI analysis in milliseconds (increased for Ollama fallback)
   analysisTimeoutMs: 6e4,
   // Enable/disable AI listing analysis (set to false for faster searches)
-  enableAIAnalysis: true
+  enableAIAnalysis: true,
+  // Threshold for detailed vs brief analysis
+  detailedAnalysisThreshold: 10
+  // If <= this many listings, do detailed analysis
 };
-var filterListingsByRelevance = async (userQuery, listings, options) => {
-  const skipAI = options?.skipAI ?? !AI_ANALYSIS_CONFIG.enableAIAnalysis;
-  const timeout = options?.timeout ?? AI_ANALYSIS_CONFIG.analysisTimeoutMs;
-  if (skipAI || listings.length > AI_ANALYSIS_CONFIG.maxListingsForAI) {
-    console.log(`[AI Analysis] Using fast local analysis (skipAI=${skipAI}, listings=${listings.length})`);
-    return analyzeListingsLocally(userQuery, listings);
-  }
-  const health = await checkAIHealth();
-  if (!health.available || listings.length === 0) {
-    return listings.map((l) => ({
-      id: l.id,
-      isRelevant: true,
-      relevanceScore: 50,
-      reasoning: "AI unavailable - showing all results"
-    }));
-  }
+function buildAnalysisPrompt(userQuery, listings, isDetailed) {
   const listingSummaries = listings.map((l, idx) => {
     const photoInfo = l.photos.length > 0 ? `Photos: ${l.photos.length} image(s)` : "No photos";
-    const cleanDesc = l.description ? l.description.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 400) : "No description available";
+    const cleanDesc = l.description ? l.description.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() : "No description available";
+    const descLength = isDetailed ? 800 : 400;
+    const truncatedDesc = cleanDesc.slice(0, descLength);
     return `
 LISTING ${idx + 1} (ID: ${l.id}):
 Title: "${l.title}"
@@ -2800,10 +2790,37 @@ Price: \u20AC${l.priceEur.toLocaleString()}
 Area: ${l.areaSqm ? `${l.areaSqm.toLocaleString()} m\xB2` : "Not specified"}
 Property Type: ${l.propertyType || "Not specified"}
 Location: ${l.city || l.locationLabel || "Portugal"}
-Description: "${cleanDesc}"
+Description: "${truncatedDesc}"
 ${photoInfo}`;
   }).join("\n" + "=".repeat(50));
-  const prompt = `USER SEARCH QUERY: "${userQuery}"
+  if (isDetailed) {
+    return `USER SEARCH QUERY: "${userQuery}"
+
+You are providing DETAILED property analysis. Since there are only ${listings.length} results, give thorough insights on each.
+
+For EACH listing, provide a comprehensive analysis:
+
+1. MATCH ASSESSMENT: How well does this match what the user is looking for?
+2. PROPERTY DETAILS: Key features, size, condition based on description
+3. LOCATION INSIGHTS: What's notable about the location/area?
+4. VALUE ANALYSIS: Is the price reasonable for what's offered?
+5. PROS & CONS: List specific advantages and potential concerns
+6. RECOMMENDATION: Should the user consider this? Why/why not?
+
+LISTINGS TO ANALYZE:
+${listingSummaries}
+
+Return a JSON array. Each entry must have a "reasoning" field with 4-6 sentences covering the points above:
+[
+  {
+    "id": "listing-id",
+    "isRelevant": true/false,
+    "relevanceScore": 0-100,
+    "reasoning": "Detailed analysis: [Match assessment]. [Property details]. [Location insights]. [Value analysis]. [Key pros/cons]. [Recommendation]."
+  }
+]`;
+  } else {
+    return `USER SEARCH QUERY: "${userQuery}"
 
 IMPORTANT: Understand what the user REALLY wants. Parse their query for:
 - Property type (land, house, apartment, farm, etc.)
@@ -2814,7 +2831,36 @@ Now analyze these ${listings.length} listings from Portugal:
 ${listingSummaries}
 
 For EACH listing, determine if it genuinely matches what the user is looking for.
-Return a JSON array with your analysis.`;
+Return a JSON array with brief analysis (2-3 sentences each):
+[
+  {
+    "id": "listing-id",
+    "isRelevant": true/false,
+    "relevanceScore": 0-100,
+    "reasoning": "2-3 sentence explanation of why this matches or doesn't match the user's needs."
+  }
+]`;
+  }
+}
+var filterListingsByRelevance = async (userQuery, listings, options) => {
+  const skipAI = options?.skipAI ?? !AI_ANALYSIS_CONFIG.enableAIAnalysis;
+  const timeout = options?.timeout ?? AI_ANALYSIS_CONFIG.analysisTimeoutMs;
+  if (skipAI || listings.length > AI_ANALYSIS_CONFIG.maxListingsForAI) {
+    console.log(`[AI Analysis] Using fast local analysis (skipAI=${skipAI}, listings=${listings.length})`);
+    return analyzeListingsLocally(userQuery, listings, false);
+  }
+  const health = await checkAIHealth();
+  if (!health.available || listings.length === 0) {
+    return listings.map((l) => ({
+      id: l.id,
+      isRelevant: true,
+      relevanceScore: 50,
+      reasoning: "AI unavailable - showing all results"
+    }));
+  }
+  const isDetailed = listings.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
+  console.log(`[AI Analysis] Mode: ${isDetailed ? "DETAILED" : "BRIEF"} (${listings.length} listings, threshold: ${AI_ANALYSIS_CONFIG.detailedAnalysisThreshold})`);
+  const prompt = buildAnalysisPrompt(userQuery, listings, isDetailed);
   try {
     console.log(`[AI Analysis] Analyzing ${listings.length} listings with ${health.backend} backend (timeout: ${timeout}ms)...`);
     const aiCallPromise = callAIWithFallback(prompt, LISTING_ANALYSIS_PROMPT);
@@ -2891,10 +2937,10 @@ Return a JSON array with your analysis.`;
   } catch (error) {
     console.error("[AI Analysis] Failed:", error);
   }
-  console.log("[AI Analysis] Using smart local fallback");
-  return analyzeListingsLocally(userQuery, listings);
+  console.log(`[AI Analysis] Using smart local fallback (detailed: ${isDetailed})`);
+  return analyzeListingsLocally(userQuery, listings, isDetailed);
 };
-function analyzeListingsLocally(userQuery, listings) {
+function analyzeListingsLocally(userQuery, listings, isDetailed = false) {
   const query = userQuery.toLowerCase();
   const wantsApartment = /apartment|apartamento|apt|flat/.test(query) && !/house|moradia|villa/.test(query);
   const wantsHouse = /house|casa|moradia|villa|vivenda|quinta/.test(query);
@@ -3032,11 +3078,42 @@ function analyzeListingsLocally(userQuery, listings) {
     }
     score = Math.max(10, Math.min(95, score));
     let reasoning;
-    if (reasons.length > 0) {
-      reasoning = reasons.slice(0, 2).join(". ");
-      if (!reasoning.endsWith(".")) reasoning += ".";
+    if (isDetailed) {
+      const detailedParts = [];
+      detailedParts.push(`This is a ${propertyType.toLowerCase()} located in ${l.city || "Portugal"}.`);
+      if (l.priceEur > 0) {
+        const pricePerSqm = l.areaSqm && l.areaSqm > 0 ? Math.round(l.priceEur / l.areaSqm) : 0;
+        if (pricePerSqm > 0) {
+          detailedParts.push(`Priced at \u20AC${l.priceEur.toLocaleString()} (\u20AC${pricePerSqm}/m\xB2), which is ${pricePerSqm < 1500 ? "quite affordable" : pricePerSqm < 3e3 ? "reasonably priced" : pricePerSqm < 5e3 ? "mid-range" : "premium pricing"} for the area.`);
+        } else {
+          detailedParts.push(`Listed at \u20AC${l.priceEur.toLocaleString()}.`);
+        }
+      }
+      if (l.areaSqm && l.areaSqm > 0) {
+        const sizeCategory = l.areaSqm < 50 ? "compact" : l.areaSqm < 100 ? "medium-sized" : l.areaSqm < 200 ? "spacious" : "large";
+        detailedParts.push(`With ${l.areaSqm}m\xB2 of space, it offers a ${sizeCategory} layout.`);
+      }
+      if (score >= 70) {
+        detailedParts.push(`This property strongly matches your search criteria and is worth considering.`);
+      } else if (score >= 50) {
+        detailedParts.push(`This property partially matches your requirements - review the details to see if it fits your needs.`);
+      } else {
+        detailedParts.push(`This may not be an ideal match for your specific search criteria.`);
+      }
+      if (reasons.length > 0) {
+        const reasonText = reasons.filter((r) => !r.includes("\u20AC") && !r.includes("m\xB2")).slice(0, 2).join(" ");
+        if (reasonText) {
+          detailedParts.push(reasonText);
+        }
+      }
+      reasoning = detailedParts.slice(0, 5).join(" ");
     } else {
-      reasoning = `${propertyType} in ${l.city || "Portugal"} at \u20AC${l.priceEur.toLocaleString()}.`;
+      if (reasons.length > 0) {
+        reasoning = reasons.slice(0, 2).join(". ");
+        if (!reasoning.endsWith(".")) reasoning += ".";
+      } else {
+        reasoning = `${propertyType} in ${l.city || "Portugal"} at \u20AC${l.priceEur.toLocaleString()}.`;
+      }
     }
     return {
       id: l.id,

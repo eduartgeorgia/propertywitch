@@ -1155,7 +1155,90 @@ const AI_ANALYSIS_CONFIG = {
   analysisTimeoutMs: 60000,
   // Enable/disable AI listing analysis (set to false for faster searches)
   enableAIAnalysis: true,
+  // Threshold for detailed vs brief analysis
+  detailedAnalysisThreshold: 10, // If <= this many listings, do detailed analysis
 };
+
+/**
+ * Build the AI analysis prompt - detailed or brief based on listing count
+ */
+function buildAnalysisPrompt(userQuery: string, listings: ListingForAnalysis[], isDetailed: boolean): string {
+  const listingSummaries = listings.map((l, idx) => {
+    const photoInfo = l.photos.length > 0 
+      ? `Photos: ${l.photos.length} image(s)`
+      : 'No photos';
+    
+    // Clean description - remove HTML tags
+    const cleanDesc = l.description 
+      ? l.description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+      : 'No description available';
+    
+    // For detailed analysis, include full description; for brief, truncate
+    const descLength = isDetailed ? 800 : 400;
+    const truncatedDesc = cleanDesc.slice(0, descLength);
+    
+    return `
+LISTING ${idx + 1} (ID: ${l.id}):
+Title: "${l.title}"
+Price: €${l.priceEur.toLocaleString()}
+Area: ${l.areaSqm ? `${l.areaSqm.toLocaleString()} m²` : 'Not specified'}
+Property Type: ${l.propertyType || 'Not specified'}
+Location: ${l.city || l.locationLabel || 'Portugal'}
+Description: "${truncatedDesc}"
+${photoInfo}`;
+  }).join('\n' + '='.repeat(50));
+
+  if (isDetailed) {
+    // Detailed analysis prompt for fewer results
+    return `USER SEARCH QUERY: "${userQuery}"
+
+You are providing DETAILED property analysis. Since there are only ${listings.length} results, give thorough insights on each.
+
+For EACH listing, provide a comprehensive analysis:
+
+1. MATCH ASSESSMENT: How well does this match what the user is looking for?
+2. PROPERTY DETAILS: Key features, size, condition based on description
+3. LOCATION INSIGHTS: What's notable about the location/area?
+4. VALUE ANALYSIS: Is the price reasonable for what's offered?
+5. PROS & CONS: List specific advantages and potential concerns
+6. RECOMMENDATION: Should the user consider this? Why/why not?
+
+LISTINGS TO ANALYZE:
+${listingSummaries}
+
+Return a JSON array. Each entry must have a "reasoning" field with 4-6 sentences covering the points above:
+[
+  {
+    "id": "listing-id",
+    "isRelevant": true/false,
+    "relevanceScore": 0-100,
+    "reasoning": "Detailed analysis: [Match assessment]. [Property details]. [Location insights]. [Value analysis]. [Key pros/cons]. [Recommendation]."
+  }
+]`;
+  } else {
+    // Brief analysis prompt for many results
+    return `USER SEARCH QUERY: "${userQuery}"
+
+IMPORTANT: Understand what the user REALLY wants. Parse their query for:
+- Property type (land, house, apartment, farm, etc.)
+- Specific features they mentioned
+- Their apparent purpose (farming, building, investment, living, etc.)
+
+Now analyze these ${listings.length} listings from Portugal:
+${listingSummaries}
+
+For EACH listing, determine if it genuinely matches what the user is looking for.
+Return a JSON array with brief analysis (2-3 sentences each):
+[
+  {
+    "id": "listing-id",
+    "isRelevant": true/false,
+    "relevanceScore": 0-100,
+    "reasoning": "2-3 sentence explanation of why this matches or doesn't match the user's needs."
+  }
+]`;
+  }
+}
 
 export const filterListingsByRelevance = async (
   userQuery: string,
@@ -1168,7 +1251,7 @@ export const filterListingsByRelevance = async (
   // Fast path: skip AI analysis entirely if disabled or too many listings
   if (skipAI || listings.length > AI_ANALYSIS_CONFIG.maxListingsForAI) {
     console.log(`[AI Analysis] Using fast local analysis (skipAI=${skipAI}, listings=${listings.length})`);
-    return analyzeListingsLocally(userQuery, listings);
+    return analyzeListingsLocally(userQuery, listings, false);
   }
 
   const health = await checkAIHealth();
@@ -1183,40 +1266,12 @@ export const filterListingsByRelevance = async (
     }));
   }
 
-  // Build listing summaries for analysis
-  const listingSummaries = listings.map((l, idx) => {
-    const photoInfo = l.photos.length > 0 
-      ? `Photos: ${l.photos.length} image(s)`
-      : 'No photos';
-    
-    // Clean description - remove HTML tags and limit length
-    const cleanDesc = l.description 
-      ? l.description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400)
-      : 'No description available';
-    
-    return `
-LISTING ${idx + 1} (ID: ${l.id}):
-Title: "${l.title}"
-Price: €${l.priceEur.toLocaleString()}
-Area: ${l.areaSqm ? `${l.areaSqm.toLocaleString()} m²` : 'Not specified'}
-Property Type: ${l.propertyType || 'Not specified'}
-Location: ${l.city || l.locationLabel || 'Portugal'}
-Description: "${cleanDesc}"
-${photoInfo}`;
-  }).join('\n' + '='.repeat(50));
+  // Determine if we should do detailed analysis based on listing count
+  const isDetailed = listings.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
+  console.log(`[AI Analysis] Mode: ${isDetailed ? 'DETAILED' : 'BRIEF'} (${listings.length} listings, threshold: ${AI_ANALYSIS_CONFIG.detailedAnalysisThreshold})`);
 
-  const prompt = `USER SEARCH QUERY: "${userQuery}"
-
-IMPORTANT: Understand what the user REALLY wants. Parse their query for:
-- Property type (land, house, apartment, farm, etc.)
-- Specific features they mentioned
-- Their apparent purpose (farming, building, investment, living, etc.)
-
-Now analyze these ${listings.length} listings from Portugal:
-${listingSummaries}
-
-For EACH listing, determine if it genuinely matches what the user is looking for.
-Return a JSON array with your analysis.`;
+  // Build the appropriate prompt
+  const prompt = buildAnalysisPrompt(userQuery, listings, isDetailed);
 
   try {
     console.log(`[AI Analysis] Analyzing ${listings.length} listings with ${health.backend} backend (timeout: ${timeout}ms)...`);
@@ -1319,17 +1374,19 @@ Return a JSON array with your analysis.`;
   }
 
   // Smart fallback: analyze listings locally without AI
-  console.log("[AI Analysis] Using smart local fallback");
-  return analyzeListingsLocally(userQuery, listings);
+  console.log(`[AI Analysis] Using smart local fallback (detailed: ${isDetailed})`);
+  return analyzeListingsLocally(userQuery, listings, isDetailed);
 };
 
 /**
  * Local analysis fallback when AI is unavailable
  * Provides meaningful analysis based on keyword matching and property attributes
+ * @param isDetailed - When true, provide comprehensive 4-6 sentence analysis; when false, keep it brief
  */
 function analyzeListingsLocally(
   userQuery: string,
-  listings: ListingForAnalysis[]
+  listings: ListingForAnalysis[],
+  isDetailed: boolean = false
 ): ListingRelevanceResult[] {
   const query = userQuery.toLowerCase();
   
@@ -1503,13 +1560,58 @@ function analyzeListingsLocally(
     // Clamp score
     score = Math.max(10, Math.min(95, score));
     
-    // Build reasoning string - make it descriptive
+    // Build reasoning string based on detail level
     let reasoning: string;
-    if (reasons.length > 0) {
-      reasoning = reasons.slice(0, 2).join('. ');
-      if (!reasoning.endsWith('.')) reasoning += '.';
+    
+    if (isDetailed) {
+      // Generate comprehensive 4-6 sentence analysis for detailed mode
+      const detailedParts: string[] = [];
+      
+      // Property type and location
+      detailedParts.push(`This is a ${propertyType.toLowerCase()} located in ${l.city || 'Portugal'}.`);
+      
+      // Price analysis
+      if (l.priceEur > 0) {
+        const pricePerSqm = l.areaSqm && l.areaSqm > 0 ? Math.round(l.priceEur / l.areaSqm) : 0;
+        if (pricePerSqm > 0) {
+          detailedParts.push(`Priced at €${l.priceEur.toLocaleString()} (€${pricePerSqm}/m²), which is ${pricePerSqm < 1500 ? 'quite affordable' : pricePerSqm < 3000 ? 'reasonably priced' : pricePerSqm < 5000 ? 'mid-range' : 'premium pricing'} for the area.`);
+        } else {
+          detailedParts.push(`Listed at €${l.priceEur.toLocaleString()}.`);
+        }
+      }
+      
+      // Size details
+      if (l.areaSqm && l.areaSqm > 0) {
+        const sizeCategory = l.areaSqm < 50 ? 'compact' : l.areaSqm < 100 ? 'medium-sized' : l.areaSqm < 200 ? 'spacious' : 'large';
+        detailedParts.push(`With ${l.areaSqm}m² of space, it offers a ${sizeCategory} layout.`);
+      }
+      
+      // Match quality assessment
+      if (score >= 70) {
+        detailedParts.push(`This property strongly matches your search criteria and is worth considering.`);
+      } else if (score >= 50) {
+        detailedParts.push(`This property partially matches your requirements - review the details to see if it fits your needs.`);
+      } else {
+        detailedParts.push(`This may not be an ideal match for your specific search criteria.`);
+      }
+      
+      // Add specific reasons if any
+      if (reasons.length > 0) {
+        const reasonText = reasons.filter(r => !r.includes('€') && !r.includes('m²')).slice(0, 2).join(' ');
+        if (reasonText) {
+          detailedParts.push(reasonText);
+        }
+      }
+      
+      reasoning = detailedParts.slice(0, 5).join(' ');
     } else {
-      reasoning = `${propertyType} in ${l.city || 'Portugal'} at €${l.priceEur.toLocaleString()}.`;
+      // Brief 2-3 sentence analysis
+      if (reasons.length > 0) {
+        reasoning = reasons.slice(0, 2).join('. ');
+        if (!reasoning.endsWith('.')) reasoning += '.';
+      } else {
+        reasoning = `${propertyType} in ${l.city || 'Portugal'} at €${l.priceEur.toLocaleString()}.`;
+      }
     }
     
     return {
