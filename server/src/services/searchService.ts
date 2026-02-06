@@ -97,7 +97,14 @@ const filterListings = (
     .map(({ listing, distance }) => ({ listing, distance }));
 };
 
-const toCard = (listing: Listing, distanceKm?: number, relevanceScore?: number, relevanceReasoning?: string) => {
+const toCard = (
+  listing: Listing, 
+  distanceKm?: number, 
+  relevanceScore?: number, 
+  relevanceReasoning?: string,
+  visionAnalyzed?: boolean,
+  visualMatchedFeatures?: string[]
+) => {
   // Detect if listing is for sale or rent based on title, description, and price
   const title = listing.title.toLowerCase();
   const desc = (listing.description || '').toLowerCase();
@@ -152,6 +159,9 @@ const toCard = (listing: Listing, distanceKm?: number, relevanceScore?: number, 
     aiReasoning: relevanceReasoning,
     listingType,
     propertyType,
+    // Vision AI analysis markers
+    visionAnalyzed: visionAnalyzed || false,
+    visualFeatures: visualMatchedFeatures && visualMatchedFeatures.length > 0 ? visualMatchedFeatures : undefined,
   };
 };
 
@@ -421,14 +431,19 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
   }
 
   // Convert to response format with AI relevance scores
-  const responseListings = finalListings.map(({ listing, relevance }) => 
-    toCard(
+  const responseListings = finalListings.map(({ listing, relevance }) => {
+    const visionAnalyzed = (listing as any).visionAnalyzed || false;
+    const visualMatchedFeatures = (listing as any).visualMatchedFeatures || [];
+    
+    return toCard(
       listing._original as Listing, 
       listing._distance, 
       relevance.relevanceScore,
-      relevance.reasoning
-    )
-  );
+      relevance.reasoning,
+      visionAnalyzed,
+      visualMatchedFeatures
+    );
+  });
 
   const searchId = crypto.randomUUID();
 

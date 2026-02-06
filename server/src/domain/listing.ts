@@ -80,7 +80,9 @@ export type ListingCard = {
   aiReasoning?: string;
   listingType?: 'sale' | 'rent'; // For sale or for rent
   propertyType?: string; // apartment, house, land, etc.
-  // Vision AI detected features
+  // Vision AI analysis markers
+  visionAnalyzed?: boolean; // True if photo was analyzed by AI vision
+  visualFeatures?: string[]; // Features detected (from text or vision)
   imageFeatures?: ImageFeature[];
   imageFeaturesSummary?: string;
 };

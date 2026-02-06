@@ -3686,7 +3686,7 @@ var filterListings = (listings, priceRange, radiusKm, userLat, userLng) => {
     return withinPrice && withinGeo;
   }).map(({ listing, distance }) => ({ listing, distance }));
 };
-var toCard = (listing, distanceKm2, relevanceScore, relevanceReasoning) => {
+var toCard = (listing, distanceKm2, relevanceScore, relevanceReasoning, visionAnalyzed, visualMatchedFeatures) => {
   const title = listing.title.toLowerCase();
   const desc = (listing.description || "").toLowerCase();
   const combined = `${title} ${desc}`;
@@ -3729,7 +3729,10 @@ var toCard = (listing, distanceKm2, relevanceScore, relevanceReasoning) => {
     matchScore: relevanceScore ?? 0,
     aiReasoning: relevanceReasoning,
     listingType,
-    propertyType
+    propertyType,
+    // Vision AI analysis markers
+    visionAnalyzed: visionAnalyzed || false,
+    visualFeatures: visualMatchedFeatures && visualMatchedFeatures.length > 0 ? visualMatchedFeatures : void 0
   };
 };
 var runAdapterSearch = async (query, priceRange, propertyType) => {
@@ -3933,14 +3936,18 @@ var runSearch = async (request) => {
       console.log(`[Search] No listings found with exact visual feature matches, showing best available`);
     }
   }
-  const responseListings = finalListings.map(
-    ({ listing, relevance }) => toCard(
+  const responseListings = finalListings.map(({ listing, relevance }) => {
+    const visionAnalyzed = listing.visionAnalyzed || false;
+    const visualMatchedFeatures = listing.visualMatchedFeatures || [];
+    return toCard(
       listing._original,
       listing._distance,
       relevance.relevanceScore,
-      relevance.reasoning
-    )
-  );
+      relevance.reasoning,
+      visionAnalyzed,
+      visualMatchedFeatures
+    );
+  });
   const searchId = import_node_crypto.default.randomUUID();
   saveSearch({
     id: searchId,
