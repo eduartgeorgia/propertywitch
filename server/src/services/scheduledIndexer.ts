@@ -1,12 +1,15 @@
 /**
  * Scheduled Indexer Service
  * Periodically fetches and indexes OLX listings for popular Portuguese locations
+ * Now with optional Vision AI analysis for image features
  */
 
 import { indexListings } from "./rag/index";
 import { ADAPTERS } from "../adapters/registry";
 import type { Listing } from "../domain/listing";
 import type { PriceRange } from "../types/api";
+import { quickAnalyzeFirstPhoto, getVisionServiceStatus } from "./visionService";
+import type { ImageFeature } from "../domain/listing";
 
 // Popular Portuguese locations to index
 const LOCATIONS_TO_INDEX = [
@@ -48,6 +51,11 @@ const CONFIG = {
   
   // Maximum age of listings to index (in days)
   maxListingAgeDays: 90, // 3 months
+  
+  // Vision AI analysis settings
+  enableVisionAnalysis: process.env.ENABLE_VISION_INDEXING === 'true',
+  visionAnalysisDelay: 1000, // 1 second between vision API calls
+  maxVisionAnalysisPerRun: 50, // Limit vision analysis to save API calls
   
   // Price ranges to search
   priceRanges: [
@@ -172,6 +180,38 @@ export async function runIndexingCycle(): Promise<{ success: boolean; indexed: n
       }
       
       if (allListings.length >= CONFIG.maxListingsPerRun) break;
+    }
+    
+    // Optional: Analyze images with Vision AI
+    if (CONFIG.enableVisionAnalysis && allListings.length > 0) {
+      const visionStatus = getVisionServiceStatus();
+      if (visionStatus.available) {
+        console.log(`[Indexer] Running Vision AI analysis on up to ${CONFIG.maxVisionAnalysisPerRun} listings...`);
+        
+        // Prioritize listings without existing image analysis
+        const listingsToAnalyze = allListings
+          .filter(l => !l.imageFeatures && l.photos && l.photos.length > 0)
+          .slice(0, CONFIG.maxVisionAnalysisPerRun);
+        
+        let analyzed = 0;
+        for (const listing of listingsToAnalyze) {
+          try {
+            const features = await quickAnalyzeFirstPhoto(listing.id, listing.photos[0]);
+            if (features.length > 0) {
+              listing.imageFeatures = features as ImageFeature[];
+              listing.imageFeaturesAnalyzedAt = new Date().toISOString();
+              analyzed++;
+            }
+            await sleep(CONFIG.visionAnalysisDelay);
+          } catch (error) {
+            console.error(`[Indexer] Vision analysis failed for ${listing.id}:`, error);
+          }
+        }
+        
+        console.log(`[Indexer] Vision AI analyzed ${analyzed}/${listingsToAnalyze.length} listings`);
+      } else {
+        console.log(`[Indexer] Vision AI not available, skipping image analysis`);
+      }
     }
     
     // Index collected listings

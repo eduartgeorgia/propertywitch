@@ -1,3 +1,44 @@
+// Image features that can be detected by vision AI
+export type ImageFeature = 
+  | "swimming_pool"
+  | "sea_view"
+  | "ocean_view"
+  | "mountain_view"
+  | "city_view"
+  | "forest"
+  | "trees"
+  | "garden"
+  | "bare_land"
+  | "ruins"
+  | "old_building"
+  | "modern_architecture"
+  | "traditional_architecture"
+  | "rustic_style"
+  | "luxury_finish"
+  | "needs_renovation"
+  | "parking"
+  | "garage"
+  | "terrace"
+  | "balcony"
+  | "rooftop"
+  | "waterfront"
+  | "river_view"
+  | "vineyard"
+  | "olive_grove"
+  | "agricultural_land"
+  | "construction_ready"
+  | "flat_terrain"
+  | "sloped_terrain"
+  | "rocky_terrain"
+  | "road_access"
+  | "remote_location"
+  | "urban_area"
+  | "suburban_area"
+  | "rural_area"
+  | "solar_panels"
+  | "fence"
+  | "gated";
+
 export type Listing = {
   id: string;
   sourceSite: string;
@@ -17,6 +58,9 @@ export type Listing = {
   description?: string;
   photos: string[];
   lastSeenAt: string;
+  // Vision AI detected features from photos
+  imageFeatures?: ImageFeature[];
+  imageFeaturesAnalyzedAt?: string;
 };
 
 export type ListingCard = {
@@ -36,4 +80,7 @@ export type ListingCard = {
   aiReasoning?: string;
   listingType?: 'sale' | 'rent'; // For sale or for rent
   propertyType?: string; // apartment, house, land, etc.
+  // Vision AI detected features
+  imageFeatures?: ImageFeature[];
+  imageFeaturesSummary?: string;
 };

@@ -25,6 +25,13 @@ import {
   storeSearchResults,
   getLastSearchResults,
 } from "../services/threadService";
+import {
+  analyzeImage,
+  analyzeListingPhotos,
+  extractImageFeatureQuery,
+  generateFeatureSummary,
+  getVisionServiceStatus,
+} from "../services/visionService";
 
 const router = Router();
 
@@ -490,6 +497,106 @@ router.post("/ai/switch", async (req, res) => {
       return res.status(400).json({ error: "Invalid request", details: error.errors });
     }
     console.error("Error switching backend:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+
+/**
+ * Vision AI - Get service status
+ */
+router.get("/vision/status", async (_req, res) => {
+  const status = getVisionServiceStatus();
+  return res.json(status);
+});
+
+/**
+ * Vision AI - Analyze a single image URL
+ */
+const analyzeImageSchema = z.object({
+  imageUrl: z.string().url(),
+});
+
+router.post("/vision/analyze-image", async (req, res) => {
+  try {
+    const body = analyzeImageSchema.parse(req.body);
+    const result = await analyzeImage(body.imageUrl);
+    
+    if (!result) {
+      return res.status(500).json({ error: "Failed to analyze image" });
+    }
+    
+    return res.json({
+      success: true,
+      analysis: result,
+      summary: generateFeatureSummary(result.features),
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Invalid request", details: error.errors });
+    }
+    console.error("Error analyzing image:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+
+/**
+ * Vision AI - Analyze multiple photos for a listing
+ */
+const analyzeListingSchema = z.object({
+  listingId: z.string(),
+  photoUrls: z.array(z.string().url()),
+  maxPhotos: z.number().min(1).max(5).optional(),
+});
+
+router.post("/vision/analyze-listing", async (req, res) => {
+  try {
+    const body = analyzeListingSchema.parse(req.body);
+    const result = await analyzeListingPhotos(
+      body.listingId,
+      body.photoUrls,
+      body.maxPhotos || 3
+    );
+    
+    if (!result) {
+      return res.status(500).json({ error: "Failed to analyze listing photos" });
+    }
+    
+    return res.json({
+      success: true,
+      analysis: result,
+      featureSummary: generateFeatureSummary(result.combinedFeatures),
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Invalid request", details: error.errors });
+    }
+    console.error("Error analyzing listing:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+
+/**
+ * Vision AI - Extract image feature keywords from a query
+ */
+const extractFeaturesSchema = z.object({
+  query: z.string(),
+});
+
+router.post("/vision/extract-features", async (req, res) => {
+  try {
+    const body = extractFeaturesSchema.parse(req.body);
+    const features = extractImageFeatureQuery(body.query);
+    
+    return res.json({
+      query: body.query,
+      detectedFeatures: features,
+      count: features.length,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Invalid request", details: error.errors });
+    }
+    console.error("Error extracting features:", error);
     return res.status(500).json({ error: String(error) });
   }
 });

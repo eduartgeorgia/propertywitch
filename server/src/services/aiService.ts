@@ -712,6 +712,8 @@ export type AIIntentResult = {
     areaMax?: number;
     bedrooms?: number;
     keywords?: string[];
+    // Vision/image feature filters
+    imageFeatures?: string[];
   };
   selectionCriteria?: string;
   confirmationContext?: string;
@@ -738,6 +740,20 @@ CRITICAL RULES:
 - Questions about taxes, documents, visas, buying process → "conversation"
 - New property search with location/price/type → "search"
 
+IMAGE/VISUAL FEATURES - Extract these when user asks for properties with specific visual characteristics:
+- Pool/swimming pool → imageFeatures: ["pool"]
+- Sea view, ocean view, beach → imageFeatures: ["sea", "ocean", "beach"]
+- Forest, trees, green → imageFeatures: ["forest", "trees"]
+- Mountain view → imageFeatures: ["mountain"]
+- Garden → imageFeatures: ["garden"]
+- Ruins, old building → imageFeatures: ["ruins", "old"]
+- Modern architecture → imageFeatures: ["modern"]
+- Traditional/rustic style → imageFeatures: ["traditional", "rustic"]
+- Terrace, balcony → imageFeatures: ["terrace", "balcony"]
+- Vineyard, olive grove → imageFeatures: ["vineyard", "olive"]
+- Bare/empty land → imageFeatures: ["bare_land"]
+- Flat terrain, sloped → imageFeatures: ["flat", "sloped"]
+
 Respond with ONLY valid JSON:
 {
   "intent": "search" | "refine_search" | "pick_from_results" | "conversation" | "follow_up" | "show_listings",
@@ -752,7 +768,8 @@ Respond with ONLY valid JSON:
     "areaMin": number or null (in square meters),
     "areaMax": number or null (in square meters),
     "bedrooms": number or null,
-    "keywords": ["array", "of", "relevant", "keywords"]
+    "keywords": ["array", "of", "relevant", "keywords"],
+    "imageFeatures": ["array", "of", "visual", "features"] or null
   },
   "selectionCriteria": "what the user wants to filter/sort by (only for pick_from_results intent)"
 }`;
