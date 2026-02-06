@@ -834,6 +834,21 @@ Analyze and respond with JSON only:`;
         const parsed = JSON.parse(jsonMatch[0]);
         console.log(`[Intent AI] Detected: ${parsed.intent} (${parsed.confidence}) - ${parsed.reason}`);
         
+        // SAFETY CHECK: If message clearly looks like a property search, override AI if it said "conversation"
+        const looksLikeSearch = /(?:show|find|search|looking|houses?|apartments?|properties?|land|villa|for\s*sale|to\s*buy|near|pool|sea\s*view)/i.test(message);
+        const aiSaidConversation = parsed.intent === "conversation" || parsed.isPropertySearch === false;
+        
+        if (looksLikeSearch && aiSaidConversation) {
+          console.log(`[Intent AI] OVERRIDE: Message looks like search but AI said "${parsed.intent}" - forcing search intent`);
+          return {
+            intent: "search",
+            isPropertySearch: true,
+            confidence: 0.8,
+            reason: "Override: message contains search keywords",
+            extractedFilters: parsed.extractedFilters,
+          };
+        }
+        
         return {
           intent: parsed.intent || "search",
           isPropertySearch: parsed.isPropertySearch ?? true,
@@ -851,6 +866,17 @@ Analyze and respond with JSON only:`;
   // Fallback: minimal pattern matching for when AI is unavailable
   console.log("[Intent] AI unavailable, using fallback patterns");
   
+  // PRIORITY 1: Check for explicit search keywords - these should ALWAYS trigger search
+  if (/(?:show\s*me|find\s*me|looking\s*for|search\s*for|get\s*me|i\s*want|i\s*need|houses?|apartments?|properties?|land|villa|villas)/i.test(message) && 
+      /(?:for\s*sale|to\s*buy|near|in\s+\w+|portugal|lisbon|porto|algarve|with\s+pool|sea\s*view)/i.test(message)) {
+    return {
+      intent: "search",
+      isPropertySearch: true,
+      confidence: 0.9,
+      reason: "Fallback: explicit property search with location/criteria detected"
+    };
+  }
+  
   // Check for area mentions (m2, m², sqm) - this is about land SIZE
   if (/\d+\s*(?:m2|m²|sqm|square\s*met)/i.test(message) && hasRecentResults) {
     return {
@@ -862,11 +888,11 @@ Analyze and respond with JSON only:`;
   }
   
   // Check for obvious search patterns
-  if (/(?:find|search|looking for)\s+(?:me\s+)?(?:a\s+)?(?:land|house|apartment|property)/i.test(message)) {
+  if (/(?:find|search|looking for|show me)\s+(?:me\s+)?(?:some\s+)?(?:a\s+)?(?:land|house|houses|apartment|apartments|property|properties|villas?)/i.test(message)) {
     return {
       intent: "search",
       isPropertySearch: true,
-      confidence: 0.8,
+      confidence: 0.85,
       reason: "Fallback: search pattern detected"
     };
   }
