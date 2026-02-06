@@ -2459,6 +2459,20 @@ CRITICAL RULES:
 - Questions about taxes, documents, visas, buying process \u2192 "conversation"
 - New property search with location/price/type \u2192 "search"
 
+IMAGE/VISUAL FEATURES - Extract these when user asks for properties with specific visual characteristics:
+- Pool/swimming pool \u2192 imageFeatures: ["pool"]
+- Sea view, ocean view, beach \u2192 imageFeatures: ["sea", "ocean", "beach"]
+- Forest, trees, green \u2192 imageFeatures: ["forest", "trees"]
+- Mountain view \u2192 imageFeatures: ["mountain"]
+- Garden \u2192 imageFeatures: ["garden"]
+- Ruins, old building \u2192 imageFeatures: ["ruins", "old"]
+- Modern architecture \u2192 imageFeatures: ["modern"]
+- Traditional/rustic style \u2192 imageFeatures: ["traditional", "rustic"]
+- Terrace, balcony \u2192 imageFeatures: ["terrace", "balcony"]
+- Vineyard, olive grove \u2192 imageFeatures: ["vineyard", "olive"]
+- Bare/empty land \u2192 imageFeatures: ["bare_land"]
+- Flat terrain, sloped \u2192 imageFeatures: ["flat", "sloped"]
+
 Respond with ONLY valid JSON:
 {
   "intent": "search" | "refine_search" | "pick_from_results" | "conversation" | "follow_up" | "show_listings",
@@ -2473,7 +2487,8 @@ Respond with ONLY valid JSON:
     "areaMin": number or null (in square meters),
     "areaMax": number or null (in square meters),
     "bedrooms": number or null,
-    "keywords": ["array", "of", "relevant", "keywords"]
+    "keywords": ["array", "of", "relevant", "keywords"],
+    "imageFeatures": ["array", "of", "visual", "features"] or null
   },
   "selectionCriteria": "what the user wants to filter/sort by (only for pick_from_results intent)"
 }`;
@@ -4062,6 +4077,254 @@ function getThreadCount() {
   return threads.size;
 }
 
+// src/services/visionService.ts
+var GROQ_API_KEY4 = process.env.GROQ_API_KEY ?? "";
+var VISION_MODEL = "llama-3.2-90b-vision-preview";
+var analysisCache = /* @__PURE__ */ new Map();
+async function analyzeImage(imageUrl) {
+  const cached = analysisCache.get(imageUrl);
+  if (cached) {
+    console.log(`[Vision] Cache hit for image`);
+    return cached;
+  }
+  if (!GROQ_API_KEY4) {
+    console.error("[Vision] No GROQ_API_KEY configured");
+    return null;
+  }
+  console.log(`[Vision] Analyzing image: ${imageUrl.substring(0, 60)}...`);
+  const systemPrompt = `You are an expert real estate photo analyzer. Analyze the property image and identify all visible features.
+
+FEATURE CATEGORIES TO DETECT:
+1. WATER FEATURES: swimming_pool, sea_view, ocean_view, waterfront, river_view
+2. NATURAL SURROUNDINGS: forest, trees, garden, mountain_view, vineyard, olive_grove, agricultural_land
+3. TERRAIN: bare_land, flat_terrain, sloped_terrain, rocky_terrain
+4. BUILDING CONDITION: ruins, old_building, needs_renovation, modern_architecture, traditional_architecture, rustic_style, luxury_finish
+5. AMENITIES: parking, garage, terrace, balcony, rooftop, solar_panels, fence, gated
+6. LOCATION TYPE: urban_area, suburban_area, rural_area, remote_location, road_access, city_view
+7. SPECIAL: construction_ready (cleared land ready to build)
+
+Respond with ONLY valid JSON:
+{
+  "features": ["feature1", "feature2"],
+  "confidence": {"feature1": 0.95, "feature2": 0.8},
+  "description": "Brief description of what's in the image",
+  "propertyCondition": "excellent|good|fair|needs_work|ruins",
+  "architecturalStyle": "modern/traditional/rustic/etc or null if not a building",
+  "surroundings": "Brief description of the surroundings"
+}`;
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${GROQ_API_KEY4}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: VISION_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Analyze this property image and identify all visible features. Focus on features buyers would care about."
+              },
+              {
+                type: "image_url",
+                image_url: { url: imageUrl }
+              }
+            ]
+          }
+        ],
+        max_tokens: 1e3,
+        temperature: 0.3
+      })
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Vision] Groq API error: ${response.status} - ${errorText}`);
+      return null;
+    }
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      console.error("[Vision] No content in response");
+      return null;
+    }
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("[Vision] Could not parse JSON from response:", content);
+      return null;
+    }
+    const parsed = JSON.parse(jsonMatch[0]);
+    const result = {
+      features: parsed.features || [],
+      confidence: parsed.confidence || {},
+      description: parsed.description || "",
+      propertyCondition: parsed.propertyCondition,
+      architecturalStyle: parsed.architecturalStyle,
+      surroundings: parsed.surroundings,
+      rawAnalysis: content
+    };
+    analysisCache.set(imageUrl, result);
+    console.log(`[Vision] Detected features: ${result.features.join(", ")}`);
+    return result;
+  } catch (error) {
+    console.error("[Vision] Error analyzing image:", error);
+    return null;
+  }
+}
+async function analyzeListingPhotos(listingId, photoUrls, maxPhotos = 3) {
+  if (!photoUrls || photoUrls.length === 0) {
+    return null;
+  }
+  const photosToAnalyze = photoUrls.slice(0, maxPhotos);
+  const results = [];
+  console.log(`[Vision] Analyzing ${photosToAnalyze.length} photos for listing ${listingId}`);
+  for (const url of photosToAnalyze) {
+    const result = await analyzeImage(url);
+    if (result) {
+      results.push(result);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  if (results.length === 0) {
+    return null;
+  }
+  const featureCount = {};
+  const featureConfSum = {};
+  const descriptions = [];
+  for (const result of results) {
+    descriptions.push(result.description);
+    for (const feature of result.features) {
+      featureCount[feature] = (featureCount[feature] || 0) + 1;
+      const conf = result.confidence[feature] || 0.7;
+      featureConfSum[feature] = (featureConfSum[feature] || 0) + conf;
+    }
+  }
+  const combinedFeatures = [];
+  const featureConfidence = {};
+  for (const [feature, count] of Object.entries(featureCount)) {
+    combinedFeatures.push(feature);
+    featureConfidence[feature] = featureConfSum[feature] / count;
+  }
+  combinedFeatures.sort((a, b) => (featureConfidence[b] || 0) - (featureConfidence[a] || 0));
+  return {
+    listingId,
+    analyzedPhotos: results.length,
+    combinedFeatures,
+    featureConfidence,
+    summary: descriptions.join(" | "),
+    analyzedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function quickAnalyzeFirstPhoto(listingId, photoUrl) {
+  const result = await analyzeImage(photoUrl);
+  return result?.features || [];
+}
+function extractImageFeatureQuery(userQuery) {
+  const query = userQuery.toLowerCase();
+  const featureKeywords = [];
+  const patterns = [
+    [/\b(swimming\s*)?pool\b/, "pool"],
+    [/\bsea\s*(view|side|front)?\b/, "sea"],
+    [/\bocean\s*(view|side|front)?\b/, "ocean"],
+    [/\bbeach\b/, "beach"],
+    [/\bwater\s*front\b/, "waterfront"],
+    [/\briver\s*(view|side|front)?\b/, "river"],
+    [/\bmountain\s*(view)?\b/, "mountain"],
+    [/\bcity\s*(view)?\b/, "city"],
+    [/\bforest(ed)?\b/, "forest"],
+    [/\btrees?\b/, "trees"],
+    [/\bgarden\b/, "garden"],
+    [/\bruins?\b/, "ruins"],
+    [/\bold\s*(building|house|property)?\b/, "old"],
+    [/\bmodern\b/, "modern"],
+    [/\btraditional\b/, "traditional"],
+    [/\brusstic\b/, "rustic"],
+    [/\brenovation\b/, "renovation"],
+    [/\bfixer\s*upper\b/, "fixer upper"],
+    [/\bluxury\b/, "luxury"],
+    [/\bparking\b/, "parking"],
+    [/\bgarage\b/, "garage"],
+    [/\bterrace\b/, "terrace"],
+    [/\bbalcony\b/, "balcony"],
+    [/\broof\s*top\b/, "rooftop"],
+    [/\bflat\s*(terrain|land)?\b/, "flat"],
+    [/\bsloped?\b/, "sloped"],
+    [/\bvineyard\b/, "vineyard"],
+    [/\bolive\s*(grove|trees?)?\b/, "olive"],
+    [/\bfarm(land)?\b/, "farm"],
+    [/\brural\b/, "rural"],
+    [/\burban\b/, "urban"],
+    [/\bgated\b/, "gated"],
+    [/\bfence[d]?\b/, "fence"],
+    [/\bsolar\s*(panels?)?\b/, "solar"],
+    [/\bbare\s*(land)?\b/, "bare_land"]
+  ];
+  for (const [pattern, keyword] of patterns) {
+    if (pattern.test(query)) {
+      featureKeywords.push(keyword);
+    }
+  }
+  return featureKeywords;
+}
+function generateFeatureSummary(features) {
+  if (!features || features.length === 0) {
+    return "";
+  }
+  const featureLabels = {
+    swimming_pool: "swimming pool",
+    sea_view: "sea view",
+    ocean_view: "ocean view",
+    mountain_view: "mountain view",
+    city_view: "city view",
+    forest: "forested area",
+    trees: "trees/greenery",
+    garden: "garden",
+    bare_land: "cleared/bare land",
+    ruins: "ruins",
+    old_building: "old building",
+    modern_architecture: "modern architecture",
+    traditional_architecture: "traditional style",
+    rustic_style: "rustic charm",
+    luxury_finish: "luxury finishes",
+    needs_renovation: "needs renovation",
+    parking: "parking",
+    garage: "garage",
+    terrace: "terrace",
+    balcony: "balcony",
+    rooftop: "rooftop",
+    waterfront: "waterfront",
+    river_view: "river view",
+    vineyard: "vineyard",
+    olive_grove: "olive grove",
+    agricultural_land: "agricultural land",
+    construction_ready: "construction ready",
+    flat_terrain: "flat terrain",
+    sloped_terrain: "sloped terrain",
+    rocky_terrain: "rocky terrain",
+    road_access: "road access",
+    remote_location: "remote location",
+    urban_area: "urban area",
+    suburban_area: "suburban area",
+    rural_area: "rural setting",
+    solar_panels: "solar panels",
+    fence: "fenced",
+    gated: "gated"
+  };
+  const labels = features.map((f) => featureLabels[f] || f.replace(/_/g, " ")).slice(0, 5);
+  return `Features: ${labels.join(", ")}`;
+}
+function getVisionServiceStatus() {
+  return {
+    available: !!GROQ_API_KEY4,
+    model: VISION_MODEL,
+    cacheSize: analysisCache.size
+  };
+}
+
 // src/routes/chat.ts
 var router4 = (0, import_express4.Router)();
 function generateRefinementSuggestions(intent, listingsCount, matchType) {
@@ -4399,6 +4662,82 @@ router4.post("/ai/switch", async (req, res) => {
       return res.status(400).json({ error: "Invalid request", details: error.errors });
     }
     console.error("Error switching backend:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+router4.get("/vision/status", async (_req, res) => {
+  const status = getVisionServiceStatus();
+  return res.json(status);
+});
+var analyzeImageSchema = import_zod3.z.object({
+  imageUrl: import_zod3.z.string().url()
+});
+router4.post("/vision/analyze-image", async (req, res) => {
+  try {
+    const body = analyzeImageSchema.parse(req.body);
+    const result = await analyzeImage(body.imageUrl);
+    if (!result) {
+      return res.status(500).json({ error: "Failed to analyze image" });
+    }
+    return res.json({
+      success: true,
+      analysis: result,
+      summary: generateFeatureSummary(result.features)
+    });
+  } catch (error) {
+    if (error instanceof import_zod3.z.ZodError) {
+      return res.status(400).json({ error: "Invalid request", details: error.errors });
+    }
+    console.error("Error analyzing image:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+var analyzeListingSchema = import_zod3.z.object({
+  listingId: import_zod3.z.string(),
+  photoUrls: import_zod3.z.array(import_zod3.z.string().url()),
+  maxPhotos: import_zod3.z.number().min(1).max(5).optional()
+});
+router4.post("/vision/analyze-listing", async (req, res) => {
+  try {
+    const body = analyzeListingSchema.parse(req.body);
+    const result = await analyzeListingPhotos(
+      body.listingId,
+      body.photoUrls,
+      body.maxPhotos || 3
+    );
+    if (!result) {
+      return res.status(500).json({ error: "Failed to analyze listing photos" });
+    }
+    return res.json({
+      success: true,
+      analysis: result,
+      featureSummary: generateFeatureSummary(result.combinedFeatures)
+    });
+  } catch (error) {
+    if (error instanceof import_zod3.z.ZodError) {
+      return res.status(400).json({ error: "Invalid request", details: error.errors });
+    }
+    console.error("Error analyzing listing:", error);
+    return res.status(500).json({ error: String(error) });
+  }
+});
+var extractFeaturesSchema = import_zod3.z.object({
+  query: import_zod3.z.string()
+});
+router4.post("/vision/extract-features", async (req, res) => {
+  try {
+    const body = extractFeaturesSchema.parse(req.body);
+    const features = extractImageFeatureQuery(body.query);
+    return res.json({
+      query: body.query,
+      detectedFeatures: features,
+      count: features.length
+    });
+  } catch (error) {
+    if (error instanceof import_zod3.z.ZodError) {
+      return res.status(400).json({ error: "Invalid request", details: error.errors });
+    }
+    console.error("Error extracting features:", error);
     return res.status(500).json({ error: String(error) });
   }
 });
@@ -5323,6 +5662,12 @@ var CONFIG = {
   // Maximum age of listings to index (in days)
   maxListingAgeDays: 90,
   // 3 months
+  // Vision AI analysis settings
+  enableVisionAnalysis: process.env.ENABLE_VISION_INDEXING === "true",
+  visionAnalysisDelay: 1e3,
+  // 1 second between vision API calls
+  maxVisionAnalysisPerRun: 50,
+  // Limit vision analysis to save API calls
   // Price ranges to search
   priceRanges: [
     { min: 0, max: 1e5 },
@@ -5409,6 +5754,30 @@ async function runIndexingCycle() {
         if (allListings.length >= CONFIG.maxListingsPerRun) break;
       }
       if (allListings.length >= CONFIG.maxListingsPerRun) break;
+    }
+    if (CONFIG.enableVisionAnalysis && allListings.length > 0) {
+      const visionStatus = getVisionServiceStatus();
+      if (visionStatus.available) {
+        console.log(`[Indexer] Running Vision AI analysis on up to ${CONFIG.maxVisionAnalysisPerRun} listings...`);
+        const listingsToAnalyze = allListings.filter((l) => !l.imageFeatures && l.photos && l.photos.length > 0).slice(0, CONFIG.maxVisionAnalysisPerRun);
+        let analyzed = 0;
+        for (const listing of listingsToAnalyze) {
+          try {
+            const features = await quickAnalyzeFirstPhoto(listing.id, listing.photos[0]);
+            if (features.length > 0) {
+              listing.imageFeatures = features;
+              listing.imageFeaturesAnalyzedAt = (/* @__PURE__ */ new Date()).toISOString();
+              analyzed++;
+            }
+            await sleep(CONFIG.visionAnalysisDelay);
+          } catch (error) {
+            console.error(`[Indexer] Vision analysis failed for ${listing.id}:`, error);
+          }
+        }
+        console.log(`[Indexer] Vision AI analyzed ${analyzed}/${listingsToAnalyze.length} listings`);
+      } else {
+        console.log(`[Indexer] Vision AI not available, skipping image analysis`);
+      }
     }
     if (allListings.length > 0) {
       console.log(`[Indexer] Indexing ${allListings.length} unique listings...`);

@@ -1575,6 +1575,53 @@ function analyzeListingsLocally(
       }
     }
     
+    // Visual feature detection from query and listing text
+    const visualFeaturePatterns: [RegExp, string, string][] = [
+      [/\b(sea|mar|ocean|oceano|vista\s*mar|sea\s*view|ocean\s*view)\b/i, 'sea', 'sea/ocean view'],
+      [/\b(pool|piscina|swimming)\b/i, 'pool', 'swimming pool'],
+      [/\b(forest|floresta|trees?|árvores?|bosque|arborizado)\b/i, 'forest', 'forest/trees'],
+      [/\b(mountain|montanha|serra|vista\s*montanha)\b/i, 'mountain', 'mountain view'],
+      [/\b(garden|jardim|quintal)\b/i, 'garden', 'garden'],
+      [/\b(river|rio|ribeira|riverside)\b/i, 'river', 'riverside'],
+      [/\b(ruin|ruína|abandoned|para\s*reconstruir|para\s*recuperar)\b/i, 'ruins', 'ruins/renovation needed'],
+      [/\b(modern|moderno|contemporary|contemporâneo)\b/i, 'modern', 'modern style'],
+      [/\b(traditional|tradicional|típico|rústico|rustic)\b/i, 'traditional', 'traditional/rustic'],
+      [/\b(vineyard|vinha|vineyard|vinícola)\b/i, 'vineyard', 'vineyard'],
+      [/\b(terrace|terraço|varanda|balcony|balcon)\b/i, 'terrace', 'terrace/balcony'],
+      [/\b(garage|garagem|parking|estacionamento)\b/i, 'parking', 'parking/garage'],
+      [/\b(rural|campo|countryside|isolado)\b/i, 'rural', 'rural location'],
+    ];
+    
+    // Check which visual features user is looking for
+    const requestedVisualFeatures: string[] = [];
+    for (const [pattern, key] of visualFeaturePatterns) {
+      if (pattern.test(query)) {
+        requestedVisualFeatures.push(key);
+      }
+    }
+    
+    // Check which visual features the listing has (in title/description)
+    const listingVisualFeatures: string[] = [];
+    for (const [pattern, key, label] of visualFeaturePatterns) {
+      if (pattern.test(combined)) {
+        listingVisualFeatures.push(key);
+      }
+    }
+    
+    // Boost score for matching visual features
+    if (requestedVisualFeatures.length > 0) {
+      const matchedFeatures = requestedVisualFeatures.filter(f => listingVisualFeatures.includes(f));
+      if (matchedFeatures.length > 0) {
+        const featureBoost = (matchedFeatures.length / requestedVisualFeatures.length) * 25;
+        score += featureBoost;
+        const labels = matchedFeatures.map(f => visualFeaturePatterns.find(p => p[1] === f)?.[2] || f);
+        reasons.push(`Has ${labels.join(', ')}`);
+      } else {
+        // Penalize if visual feature requested but not found
+        score -= 10;
+      }
+    }
+    
     // Clamp score
     score = Math.max(10, Math.min(95, score));
     

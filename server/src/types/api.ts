@@ -31,6 +31,7 @@ export type SearchResponse = {
     requiredMethod: string;
     reason: string;
   }>;
+  detectedVisualFeatures?: string[];
 };
 
 export type ApproveRequest = {

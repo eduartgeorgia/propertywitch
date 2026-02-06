@@ -12,6 +12,7 @@ import { mockAdapter } from "../adapters/mock";
 import { parseUserQuery } from "./queryParser";
 import { saveSearch } from "../storage/searchStore";
 import { getRelevantListings } from "./aiService";
+import { extractImageFeatureQuery, matchesFeatureQuery, type ImageFeature } from "./visionService";
 
 const adapterById = new Map(ADAPTERS.map((adapter) => [adapter.siteId, adapter]));
 
@@ -241,26 +242,134 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
 
   // AI Relevance Filtering: Analyze each listing's title, description, and photos
   // to determine if it truly matches what the user is looking for
-  const listingsForAnalysis = filtered.map(({ listing, distance }) => ({
-    id: listing.id,
-    title: listing.title,
-    description: listing.description,
-    photos: listing.photos,
-    priceEur: listing.priceEur,
-    areaSqm: listing.areaSqm,
-    propertyType: listing.propertyType,
-    city: listing.city,
-    locationLabel: listing.city ?? listing.address ?? "Portugal",
-    // Keep original data for later
-    _original: listing,
-    _distance: distance,
-  }));
+  
+  // Extract visual features from query (e.g., "sea view", "pool", "forest")
+  const requestedVisualFeatures = extractImageFeatureQuery(request.query);
+  if (requestedVisualFeatures.length > 0) {
+    console.log(`[Search] Detected visual features in query: ${requestedVisualFeatures.join(", ")}`);
+  }
+  
+  const listingsForAnalysis = filtered.map(({ listing, distance }) => {
+    // Check if listing has pre-analyzed image features
+    const imageFeatures = (listing as any).imageFeatures as ImageFeature[] | undefined;
+    
+    // Calculate visual feature match score
+    let visualFeatureScore = 0;
+    let visualMatchedFeatures: string[] = [];
+    
+    if (requestedVisualFeatures.length > 0) {
+      // Check pre-analyzed image features
+      if (imageFeatures && imageFeatures.length > 0) {
+        const match = matchesFeatureQuery(imageFeatures, requestedVisualFeatures);
+        visualFeatureScore = match.score * 30; // Up to 30 bonus points
+        visualMatchedFeatures = match.matchedFeatures;
+      }
+      
+      // Also check title and description for visual feature keywords
+      const textContent = `${listing.title} ${listing.description || ''}`.toLowerCase();
+      const textMatches: string[] = [];
+      
+      // Feature keyword mapping for text matching
+      const featureTextPatterns: Record<string, RegExp> = {
+        sea: /\b(mar|sea|ocean|vista\s*mar|sea\s*view|ocean\s*view|frente\s*mar|praia|beach)\b/i,
+        ocean: /\b(ocean|oceano|ocean\s*view|vista\s*oceano)\b/i,
+        pool: /\b(piscina|pool|swimming)\b/i,
+        forest: /\b(floresta|forest|arborizado|trees|árvores|bosque)\b/i,
+        mountain: /\b(montanha|mountain|serra|vista\s*montanha|mountain\s*view)\b/i,
+        garden: /\b(jardim|garden|quintal)\b/i,
+        river: /\b(rio|river|ribeira|riverside)\b/i,
+        ruins: /\b(ruína|ruins?|abandonad[oa]|para\s*reconstruir|para\s*recuperar)\b/i,
+        modern: /\b(modern[oa]?|contemporary|contemporâne[oa])\b/i,
+        traditional: /\b(tradicional|traditional|típic[oa]|rústic[oa]|rustic)\b/i,
+        vineyard: /\b(vinha|vineyard|vinícola|vinho)\b/i,
+        terrace: /\b(terraço|terrace|varanda)\b/i,
+        balcony: /\b(varanda|balcon[y]?|sacada)\b/i,
+        parking: /\b(estacionamento|parking|garagem|garage)\b/i,
+        rural: /\b(rural|campo|countryside|isolad[oa])\b/i,
+      };
+      
+      for (const feature of requestedVisualFeatures) {
+        const pattern = featureTextPatterns[feature];
+        if (pattern && pattern.test(textContent)) {
+          textMatches.push(feature);
+        }
+      }
+      
+      // Add text match bonus (up to 20 points)
+      if (textMatches.length > 0) {
+        const textMatchScore = (textMatches.length / requestedVisualFeatures.length) * 20;
+        visualFeatureScore = Math.max(visualFeatureScore, visualFeatureScore + textMatchScore);
+        visualMatchedFeatures = [...new Set([...visualMatchedFeatures, ...textMatches])];
+      }
+    }
+    
+    return {
+      id: listing.id,
+      title: listing.title,
+      description: listing.description,
+      photos: listing.photos,
+      priceEur: listing.priceEur,
+      areaSqm: listing.areaSqm,
+      propertyType: listing.propertyType,
+      city: listing.city,
+      locationLabel: listing.city ?? listing.address ?? "Portugal",
+      // Visual feature data
+      visualFeatureScore,
+      visualMatchedFeatures,
+      requestedVisualFeatures,
+      // Keep original data for later
+      _original: listing,
+      _distance: distance,
+    };
+  });
 
   // Get AI-filtered relevant listings
   const relevantListings = await getRelevantListings(request.query, listingsForAnalysis);
 
+  // Boost listings that match visual features and sort by combined score
+  const sortedListings = relevantListings
+    .map(({ listing, relevance }) => {
+      const visualScore = (listing as any).visualFeatureScore || 0;
+      const visualMatches = (listing as any).visualMatchedFeatures || [];
+      const combinedScore = relevance.relevanceScore + visualScore;
+      
+      // Enhance reasoning with visual feature info
+      let enhancedReasoning = relevance.reasoning;
+      if (visualMatches.length > 0) {
+        enhancedReasoning += ` [Visual matches: ${visualMatches.join(", ")}]`;
+      }
+      
+      return {
+        listing,
+        relevance: {
+          ...relevance,
+          relevanceScore: Math.min(100, combinedScore), // Cap at 100
+          reasoning: enhancedReasoning,
+        },
+        visualScore,
+      };
+    })
+    .sort((a, b) => b.relevance.relevanceScore - a.relevance.relevanceScore);
+
+  // If visual features were requested, prioritize listings with matches
+  let finalListings = sortedListings;
+  if (requestedVisualFeatures.length > 0) {
+    // Separate listings with visual matches from those without
+    const withVisualMatch = sortedListings.filter(l => l.visualScore > 0);
+    const withoutVisualMatch = sortedListings.filter(l => l.visualScore === 0);
+    
+    // Put visual matches first, then others
+    finalListings = [...withVisualMatch, ...withoutVisualMatch];
+    
+    if (withVisualMatch.length > 0) {
+      console.log(`[Search] ${withVisualMatch.length} listings match visual features (${requestedVisualFeatures.join(", ")})`);
+    } else {
+      console.log(`[Search] No listings found with exact visual feature matches, showing best available`);
+    }
+  }
+
   // Convert to response format with AI relevance scores
-  const responseListings = relevantListings.map(({ listing, relevance }) => 
+  const responseListings = finalListings.map(({ listing, relevance }) => 
     toCard(
       listing._original as Listing, 
       listing._distance, 
@@ -274,19 +383,31 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
   saveSearch({
     id: searchId,
     createdAt: new Date().toISOString(),
-    listings: relevantListings.map(({ listing }) => listing._original as Listing),
+    listings: finalListings.map(({ listing }) => listing._original as Listing),
   });
 
-  const aiFilteredCount = filtered.length - relevantListings.length;
+  const aiFilteredCount = filtered.length - finalListings.length;
   const listingTypeLabel = parsed.listingIntent === 'rent' ? 'for rent' : parsed.listingIntent === 'sale' ? 'for sale' : '';
-  const note =
+  const visualFeatureLabel = requestedVisualFeatures.length > 0 
+    ? ` with ${requestedVisualFeatures.join(", ")}` 
+    : '';
+  
+  // Count how many have visual matches
+  const visualMatchCount = finalListings.filter(l => l.visualScore > 0).length;
+  
+  let note =
     matchType === "exact"
       ? aiFilteredCount > 0 
-        ? `Found ${relevantListings.length} ${listingTypeLabel} listings${aiFilteredCount > 0 ? ` (filtered from ${filtered.length})` : ''}.`
-        : `Showing ${relevantListings.length} ${listingTypeLabel} listings.`.trim()
+        ? `Found ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}${aiFilteredCount > 0 ? ` (filtered from ${filtered.length})` : ''}.`
+        : `Showing ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}.`.trim()
       : aiFilteredCount > 0
-        ? `AI analyzed ${filtered.length} near-miss results, showing ${relevantListings.length} most relevant ${listingTypeLabel}.`
-        : `No exact matches. Showing ${relevantListings.length} closest ${listingTypeLabel} matches.`.trim();
+        ? `AI analyzed ${filtered.length} near-miss results, showing ${finalListings.length} most relevant ${listingTypeLabel}${visualFeatureLabel}.`
+        : `No exact matches. Showing ${finalListings.length} closest ${listingTypeLabel}${visualFeatureLabel} matches.`.trim();
+  
+  // Add visual feature match info
+  if (requestedVisualFeatures.length > 0 && visualMatchCount > 0) {
+    note += ` ${visualMatchCount} listings mention these features.`;
+  }
 
   return {
     searchId,
@@ -296,5 +417,7 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
     appliedRadiusKm: matchType === "exact" ? MATCH_RULES.strictRadiusKm : MATCH_RULES.nearMissRadiusKm,
     listings: responseListings,
     blockedSites,
+    // Include detected visual features in response
+    detectedVisualFeatures: requestedVisualFeatures.length > 0 ? requestedVisualFeatures : undefined,
   };
 };
