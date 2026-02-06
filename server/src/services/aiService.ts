@@ -1452,15 +1452,27 @@ async function analyzeListingBatch(
           // Ensure all listings have a result (merge with defaults for missing)
           const resultMap = new Map(validResults.map(r => [r.id, r]));
           return listings.map(l => {
+            if (!l || !l.id) {
+              return {
+                id: l?.id || 'unknown',
+                isRelevant: true,
+                relevanceScore: 50,
+                reasoning: "Listing data incomplete",
+              };
+            }
             const aiResult = resultMap.get(l.id);
             if (aiResult) {
               return aiResult;
             }
             // Check if AI analyzed this listing but under a different ID format
-            const altResult = validResults.find(r => 
-              r.id.includes(l.id) || l.id.includes(r.id) ||
-              r.reasoning?.toLowerCase().includes(l.title?.toLowerCase().slice(0, 20))
-            );
+            const altResult = validResults.find(r => {
+              if (!r || !r.id) return false;
+              const rId = String(r.id || '');
+              const lId = String(l.id || '');
+              const lTitle = String(l.title || '').toLowerCase().slice(0, 20);
+              const rReasoning = String(r.reasoning || '').toLowerCase();
+              return rId.includes(lId) || lId.includes(rId) || rReasoning.includes(lTitle);
+            });
             if (altResult) {
               return { ...altResult, id: l.id };
             }
