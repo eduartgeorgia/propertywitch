@@ -5,7 +5,7 @@
  */
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY ?? "";
-const VISION_MODEL = "llama-3.2-90b-vision-preview";
+const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 // Features that can be detected in property images
 export type ImageFeature = 

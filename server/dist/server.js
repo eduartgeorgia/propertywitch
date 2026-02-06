@@ -3318,7 +3318,7 @@ Respond with ONLY a valid JSON object:
 
 // src/services/visionService.ts
 var GROQ_API_KEY3 = process.env.GROQ_API_KEY ?? "";
-var VISION_MODEL = "llama-3.2-90b-vision-preview";
+var VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 var analysisCache = /* @__PURE__ */ new Map();
 async function analyzeImage(imageUrl) {
   const cached = analysisCache.get(imageUrl);
