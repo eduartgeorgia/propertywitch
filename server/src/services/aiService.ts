@@ -1717,59 +1717,65 @@ function analyzeListingsLocally(
     // Clamp score
     score = Math.max(10, Math.min(95, score));
     
-    // Build reasoning string based on detail level
+    // Build reasoning string - ALWAYS provide detailed analysis now
     let reasoning: string;
     
-    if (isDetailed) {
-      // Generate comprehensive 4-6 sentence analysis for detailed mode
-      const detailedParts: string[] = [];
-      
-      // Property type and location
-      detailedParts.push(`This is a ${propertyType.toLowerCase()} located in ${l.city || 'Portugal'}.`);
-      
-      // Price analysis
-      if (l.priceEur > 0) {
-        const pricePerSqm = l.areaSqm && l.areaSqm > 0 ? Math.round(l.priceEur / l.areaSqm) : 0;
-        if (pricePerSqm > 0) {
-          detailedParts.push(`Priced at €${l.priceEur.toLocaleString()} (€${pricePerSqm}/m²), which is ${pricePerSqm < 1500 ? 'quite affordable' : pricePerSqm < 3000 ? 'reasonably priced' : pricePerSqm < 5000 ? 'mid-range' : 'premium pricing'} for the area.`);
-        } else {
-          detailedParts.push(`Listed at €${l.priceEur.toLocaleString()}.`);
-        }
-      }
-      
-      // Size details
-      if (l.areaSqm && l.areaSqm > 0) {
-        const sizeCategory = l.areaSqm < 50 ? 'compact' : l.areaSqm < 100 ? 'medium-sized' : l.areaSqm < 200 ? 'spacious' : 'large';
-        detailedParts.push(`With ${l.areaSqm}m² of space, it offers a ${sizeCategory} layout.`);
-      }
-      
-      // Match quality assessment
-      if (score >= 70) {
-        detailedParts.push(`This property strongly matches your search criteria and is worth considering.`);
-      } else if (score >= 50) {
-        detailedParts.push(`This property partially matches your requirements - review the details to see if it fits your needs.`);
+    // Generate comprehensive 3-4 sentence analysis for ALL modes
+    const detailedParts: string[] = [];
+    
+    // Property type and location
+    detailedParts.push(`This is a ${propertyType.toLowerCase()} located in ${l.city || 'Portugal'}.`);
+    
+    // Land classification (critical for Portugal)
+    if (isLand) {
+      if (isUrbanLand && !isRuralLand) {
+        detailedParts.push(`This is classified as URBAN land (terreno urbano) - construction is permitted.`);
+      } else if (isRuralLand) {
+        detailedParts.push(`⚠️ This is RURAL/RÚSTICO land - construction is NOT permitted, suitable only for agriculture.`);
       } else {
-        detailedParts.push(`This may not be an ideal match for your specific search criteria.`);
-      }
-      
-      // Add specific reasons if any
-      if (reasons.length > 0) {
-        const reasonText = reasons.filter(r => !r.includes('€') && !r.includes('m²')).slice(0, 2).join(' ');
-        if (reasonText) {
-          detailedParts.push(reasonText);
-        }
-      }
-      
-      reasoning = detailedParts.slice(0, 5).join(' ');
-    } else {
-      // Brief 2-3 sentence analysis
-      if (reasons.length > 0) {
-        reasoning = reasons.slice(0, 2).join('. ');
-        if (!reasoning.endsWith('.')) reasoning += '.';
-      } else {
-        reasoning = `${propertyType} in ${l.city || 'Portugal'} at €${l.priceEur.toLocaleString()}.`;
+        detailedParts.push(`Land classification unclear from listing - verify if urbano (buildable) or rústico (not buildable).`);
       }
     }
+    
+    // Price analysis
+    if (l.priceEur > 0) {
+      const pricePerSqm = l.areaSqm && l.areaSqm > 0 ? Math.round(l.priceEur / l.areaSqm) : 0;
+      if (pricePerSqm > 0) {
+        const priceAssessment = isLand 
+          ? (pricePerSqm < 20 ? 'very affordable (likely rural)' : pricePerSqm < 50 ? 'affordable' : pricePerSqm < 150 ? 'moderate' : 'premium (likely urban/coastal)')
+          : (pricePerSqm < 1500 ? 'quite affordable' : pricePerSqm < 3000 ? 'reasonably priced' : pricePerSqm < 5000 ? 'mid-range' : 'premium pricing');
+        detailedParts.push(`Priced at €${l.priceEur.toLocaleString()} (€${pricePerSqm}/m²) - ${priceAssessment} for the area.`);
+      } else {
+        detailedParts.push(`Listed at €${l.priceEur.toLocaleString()}.`);
+      }
+    }
+    
+    // Size details
+    if (l.areaSqm && l.areaSqm > 0) {
+      const sizeCategory = isLand
+        ? (l.areaSqm < 500 ? 'small plot' : l.areaSqm < 2000 ? 'medium plot' : l.areaSqm < 10000 ? 'large plot' : 'very large plot')
+        : (l.areaSqm < 50 ? 'compact' : l.areaSqm < 100 ? 'medium-sized' : l.areaSqm < 200 ? 'spacious' : 'large');
+      detailedParts.push(`Size: ${l.areaSqm.toLocaleString()}m² (${sizeCategory}).`);
+    }
+    
+    // Visual features found
+    if (listingVisualFeatures.length > 0) {
+      const labels = listingVisualFeatures.map(f => visualFeaturePatterns.find(p => p[1] === f)?.[2] || f);
+      detailedParts.push(`Features mentioned: ${labels.join(', ')}.`);
+    } else if (requestedVisualFeatures.length > 0) {
+      detailedParts.push(`Note: Requested visual features (${requestedVisualFeatures.join(', ')}) not confirmed in listing text - photo analysis may help.`);
+    }
+    
+    // Match assessment
+    if (score >= 75) {
+      detailedParts.push(`Strong match for your search criteria.`);
+    } else if (score >= 50) {
+      detailedParts.push(`Partial match - review details to confirm suitability.`);
+    } else {
+      detailedParts.push(`May not fully match your requirements.`);
+    }
+    
+    reasoning = detailedParts.slice(0, 5).join(' ');
     
     return {
       id: l.id,
