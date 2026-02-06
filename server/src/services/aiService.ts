@@ -1167,7 +1167,7 @@ Return ONLY valid JSON - no explanations outside the JSON array.`;
 // Configuration for AI analysis behavior
 const AI_ANALYSIS_CONFIG = {
   // Maximum listings to analyze in a single AI call (will batch if more)
-  batchSize: 15,
+  batchSize: 12, // Smaller batches = more detailed analysis per listing
   // Maximum total listings for AI analysis (larger sets use smart pre-filtering)
   maxListingsForAI: 100, // Increased from 20 - always try AI first
   // Timeout for AI analysis in milliseconds (increased for Ollama fallback)
@@ -1175,7 +1175,7 @@ const AI_ANALYSIS_CONFIG = {
   // Enable/disable AI listing analysis (set to false for faster searches)
   enableAIAnalysis: true,
   // Threshold for detailed vs brief analysis
-  detailedAnalysisThreshold: 10, // If <= this many listings, do detailed analysis
+  detailedAnalysisThreshold: 20, // Increased - more listings get detailed analysis
   // ALWAYS use AI when visual features are detected
   forceAIForVisualFeatures: true,
 };
@@ -1197,7 +1197,7 @@ function buildAnalysisPrompt(userQuery: string, listings: ListingForAnalysis[], 
     
     // ALWAYS include enough description for AI to understand the listing
     // Increased limits significantly - AI needs to READ the actual content
-    const descLength = isDetailed ? 1500 : 800;
+    const descLength = isDetailed ? 2000 : 1200;
     const truncatedDesc = cleanDesc.length > descLength 
       ? cleanDesc.slice(0, descLength) + '...'
       : cleanDesc;
@@ -1270,7 +1270,7 @@ Return a JSON array. Each entry MUST include specific details from the listing t
   }
 ]`;
   } else {
-    // Brief analysis for many results - but still MUST read descriptions
+    // Brief analysis for many results - but still MUST read descriptions thoroughly
     return `USER SEARCH QUERY: "${userQuery}"
 ${visualFeatureNote}
 
@@ -1280,16 +1280,23 @@ CRITICAL: You MUST actually READ each listing's description to determine relevan
 - Don't just look at titles - read the full description text
 - Look for Portuguese keywords that indicate features
 - Note when requested features are or aren't mentioned in the text
+- For LAND: Always specify if it's "urbano" (buildable) or "rústico" (not buildable)
+- For VISUAL FEATURES: Note if sea view, pool, garden, etc. is mentioned or NOT mentioned
 
 ${listingSummaries}
 
-Return a JSON array. Each reasoning should cite SPECIFIC text from the listing:
+Return a JSON array. Each reasoning MUST be 3-4 sentences with:
+1. Property type and key characteristics from description
+2. Whether it matches the user's search criteria
+3. Any notable features or concerns (buildability, visual features, condition)
+4. If visual features requested: explicitly state if mentioned in text or "not confirmed in text"
+
 [
   {
     "id": "listing-id",
     "isRelevant": true/false,
     "relevanceScore": 0-100,
-    "reasoning": "2-3 sentences citing specific details. Example: 'Description says \"excelente vista mar\" (sea view) and \"piscina privada\" (private pool). Located in ${listings[0]?.city || 'requested area'}.'"
+    "reasoning": "3-4 sentences. Example: 'This is a terreno urbano (urban land) suitable for construction, with 500m² in Cascais. Description mentions \"vista mar\" (sea view) and good road access. Priced at €150/m² which is reasonable for this coastal area. Water and electricity connections available.'"
   }
 ]`;
   }

@@ -311,8 +311,10 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
       const reasoning = relevance.reasoning?.toLowerCase() || '';
       const hasPhoto = listing.photos && listing.photos.length > 0;
       
-      // AI should indicate when features aren't found in text with phrases like:
-      // "not confirmed in text", "not mentioned", "no mention of", "may need photo analysis"
+      // Trigger vision when:
+      // 1. AI explicitly says features aren't confirmed in text
+      // 2. AI gave a moderate score (could go either way)
+      // 3. Listing hasn't been vision-analyzed yet
       const textMissingFeature = 
         reasoning.includes('not confirmed') ||
         reasoning.includes('not mentioned') ||
@@ -320,8 +322,10 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
         reasoning.includes('photo analysis') ||
         reasoning.includes('check photo') ||
         reasoning.includes('visual feature not') ||
-        // Also check if AI gave a lower score (suggesting uncertainty)
-        (relevance.relevanceScore < 70 && relevance.relevanceScore > 30);
+        reasoning.includes('não menciona') ||
+        reasoning.includes('sem menção') ||
+        // Analyze photos for any listing with moderate score (visual verification helps)
+        (relevance.relevanceScore < 85 && relevance.relevanceScore > 25);
       
       return hasPhoto && textMissingFeature;
     });
@@ -330,8 +334,8 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
     if (needsVisionAnalysis.length > 0 && visionStatus.available) {
       console.log(`[Search] 👁️ Vision AI: ${needsVisionAnalysis.length} listings need photo analysis (AI found visual features not confirmed in text)`);
       
-      // Analyze more photos since AI pre-filtered these as needing vision
-      const maxVisionAnalysis = 8; // Increased since these are AI-selected candidates
+      // Analyze more photos - vision is key for visual feature searches
+      const maxVisionAnalysis = 15; // Analyze up to 15 photos for visual feature queries
       const toAnalyze = needsVisionAnalysis.slice(0, maxVisionAnalysis);
       
       for (const { listing, relevance } of toAnalyze) {
