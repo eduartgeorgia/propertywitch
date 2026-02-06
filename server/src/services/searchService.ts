@@ -331,7 +331,6 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
     });
     
     if (needsVisionAnalysis.length > 0 && visionStatus.available) {
-    if (needsVisionAnalysis.length > 0 && visionStatus.available) {
       console.log(`[Search] 👁️ Vision AI: ${needsVisionAnalysis.length} listings need photo analysis (AI found visual features not confirmed in text)`);
       
       // Analyze more photos - vision is key for visual feature searches
