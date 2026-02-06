@@ -1114,144 +1114,182 @@ export type ListingRelevanceResult = {
   reasoning: string;
 };
 
-const LISTING_ANALYSIS_PROMPT = `You are an expert real estate analyst helping users find exactly what they're looking for in Portugal.
+const LISTING_ANALYSIS_PROMPT = `You are an expert Portuguese real estate analyst. Your job is to CAREFULLY READ each listing's title and description to understand exactly what is being sold/rented.
 
-CRITICAL: First, understand EXACTLY what the user wants:
-- Parse their query to identify: property type, specific features, location preferences, intended use
-- "land for farming" = agricultural/rural land with good soil, water access
-- "building plot" = urban land with construction permits
-- "land with sea view" = coastal property with ocean visibility
-- "vineyard" = agricultural land suitable for wine production
-- "investment property" = something with rental/resale potential
+**YOUR CRITICAL TASK:**
+1. READ the user's search query to understand EXACTLY what they want
+2. READ each listing's TITLE and DESCRIPTION CAREFULLY - these contain crucial information
+3. MATCH the listing content against what the user is looking for
+4. Score based on how well the ACTUAL listing content matches the user's needs
 
-CONSTRUCTION LAND IN PORTUGAL - CRITICAL RULES:
-When user asks for "land for construction", "building land", "terreno para construção", "lote":
-- ONLY include listings with "urbano" (urban), "construção" (construction), "lote" (plot), "viabilidade", "projeto aprovado"
-- EXCLUDE listings with "rústico" (rural), "agrícola" (agricultural) - these CANNOT be built on!
-- "Terreno rústico" = REJECT (no construction allowed)
-- "Terreno urbano" or "lote de terreno" = ACCEPT (construction allowed)
-- If listing doesn't mention land type, check price: urban plots are €30-300/sqm, rural is €1-15/sqm
-- Very cheap land (under €5/sqm) is usually rústico and CANNOT be built on
+**UNDERSTANDING PORTUGUESE REAL ESTATE LISTINGS:**
+- "Terreno rústico" = Rural land (CANNOT build, only agriculture)
+- "Terreno urbano" / "Lote" = Urban plot (CAN build on it)
+- "Quinta" = Farm estate (usually includes house + land)
+- "Moradia" = House/Villa
+- "Apartamento T2" = 2-bedroom apartment
+- "Vista mar" / "Vista para o mar" = Sea view
+- "Piscina" = Swimming pool
+- "Para recuperar" / "A necessitar de obras" = Needs renovation
+- "Bom estado" / "Renovado" = Good condition / Renovated
 
-For EACH listing, analyze:
-1. TITLE: What does the Portuguese title tell us? (terreno=land, rústico=rural/NO BUILD, urbano=urban/CAN BUILD, quinta=farm estate)
-2. DESCRIPTION: Read the full description carefully. Look for keywords about:
-   - Land type (agrícola=agricultural/NO BUILD, construção=building/OK, rústico=rustic/NO BUILD, urbano=urban/OK)
-   - Features (água=water, eletricidade=electricity, estrada=road access, vista=view)
-   - Permits (licença=license, projeto=project approved, alvará=permit)
-   - Condition (para recuperar=needs work, pronto=ready)
-3. SIZE & PRICE: Does the area make sense for the user's purpose?
-4. LOCATION: Is it in the right region for what they want?
+**VISUAL FEATURES TO DETECT IN TEXT:**
+When user asks for visual features (sea view, pool, forest, etc.), CHECK IF THE LISTING TEXT MENTIONS THEM:
+- Sea/Ocean view: "vista mar", "vista oceano", "frente mar", "à beira-mar", "oceanfront"
+- Pool: "piscina", "pool"
+- Garden: "jardim", "garden", "quintal"
+- Forest/Trees: "floresta", "arborizado", "árvores", "bosque"
+- Mountain view: "vista serra", "vista montanha", "mountain view"
+- River: "rio", "ribeira", "riverside"
+- Terrace/Balcony: "terraço", "varanda", "balcony"
+- Modern: "moderno", "contemporâneo", "modern"
+- Traditional/Rustic: "tradicional", "rústico", "típico"
 
-SCORING GUIDE:
-- 90-100: Perfect match - exactly what user asked for
-- 70-89: Good match - mostly fits with minor differences
-- 50-69: Partial match - could work but not ideal
-- Below 50: Not relevant - mark as isRelevant: false
+**SCORING RULES:**
+- 85-100: PERFECT match - listing clearly has what user wants (mentioned in text)
+- 70-84: GOOD match - listing mostly matches, minor differences
+- 50-69: PARTIAL match - could work but not ideal
+- 30-49: WEAK match - listing has some relevant aspects but not what user needs
+- 0-29: NO match - listing is completely different from what user wants
 
-BE STRICT: 
-- If user wants "construction land" → ONLY show "urbano" or "lote" listings, REJECT all "rústico"
-- If user wants "land" without specifying → show both but note which are buildable
-- If user wants "farming land" → show rústico, REJECT urban plots
+**FOR VISUAL FEATURE SEARCHES:**
+- If user asks for "sea view" and listing text says "vista mar" → HIGH score
+- If user asks for "sea view" but listing text doesn't mention it → LOWER score + note "visual feature not confirmed in text, may need photo analysis"
+- If user asks for "pool" and listing mentions "piscina" → HIGH score
 
-Respond with ONLY a valid JSON array:
-[
-  {
-    "id": "listing-id",
-    "isRelevant": true/false,
-    "relevanceScore": 0-100,
-    "reasoning": "2-3 sentence explanation in English of why this listing matches or doesn't match the user's specific needs. For construction queries, explicitly mention if land is urbano (buildable) or rústico (not buildable)."
-  }
-]`;
+**IMPORTANT:**
+- ACTUALLY READ the description text provided - don't just guess from the title
+- Look for specific keywords in Portuguese and English
+- Note when visual features are NOT mentioned in text (vision analysis may be needed)
+
+Return ONLY valid JSON - no explanations outside the JSON array.`;
 
 // Configuration for AI analysis behavior
 const AI_ANALYSIS_CONFIG = {
-  // Skip AI analysis if more than this many listings (use local analysis instead)
-  maxListingsForAI: 20,
+  // Maximum listings to analyze in a single AI call (will batch if more)
+  batchSize: 15,
+  // Maximum total listings for AI analysis (larger sets use smart pre-filtering)
+  maxListingsForAI: 100, // Increased from 20 - always try AI first
   // Timeout for AI analysis in milliseconds (increased for Ollama fallback)
-  analysisTimeoutMs: 60000,
+  analysisTimeoutMs: 90000, // Increased timeout for batched analysis
   // Enable/disable AI listing analysis (set to false for faster searches)
   enableAIAnalysis: true,
   // Threshold for detailed vs brief analysis
   detailedAnalysisThreshold: 10, // If <= this many listings, do detailed analysis
+  // ALWAYS use AI when visual features are detected
+  forceAIForVisualFeatures: true,
 };
 
 /**
  * Build the AI analysis prompt - detailed or brief based on listing count
+ * Now includes full description content for proper AI comprehension
  */
 function buildAnalysisPrompt(userQuery: string, listings: ListingForAnalysis[], isDetailed: boolean): string {
   const listingSummaries = listings.map((l, idx) => {
     const photoInfo = l.photos.length > 0 
-      ? `Photos: ${l.photos.length} image(s)`
-      : 'No photos';
+      ? `Has ${l.photos.length} photo(s) - can be analyzed for visual features if needed`
+      : 'No photos available';
     
-    // Clean description - remove HTML tags
+    // Clean description - remove HTML tags but KEEP FULL TEXT for AI to read
     const cleanDesc = l.description 
       ? l.description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
-      : 'No description available';
+      : 'No description provided';
     
-    // For detailed analysis, include full description; for brief, truncate
-    const descLength = isDetailed ? 800 : 400;
-    const truncatedDesc = cleanDesc.slice(0, descLength);
+    // ALWAYS include enough description for AI to understand the listing
+    // Increased limits significantly - AI needs to READ the actual content
+    const descLength = isDetailed ? 1500 : 800;
+    const truncatedDesc = cleanDesc.length > descLength 
+      ? cleanDesc.slice(0, descLength) + '...'
+      : cleanDesc;
     
     return `
-LISTING ${idx + 1} (ID: ${l.id}):
-Title: "${l.title}"
-Price: €${l.priceEur.toLocaleString()}
-Area: ${l.areaSqm ? `${l.areaSqm.toLocaleString()} m²` : 'Not specified'}
-Property Type: ${l.propertyType || 'Not specified'}
-Location: ${l.city || l.locationLabel || 'Portugal'}
-Description: "${truncatedDesc}"
-${photoInfo}`;
-  }).join('\n' + '='.repeat(50));
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LISTING ${idx + 1} (ID: ${l.id})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📍 Location: ${l.city || l.locationLabel || 'Portugal'}
+🏷️ Title: "${l.title}"
+💰 Price: €${l.priceEur.toLocaleString()}
+📐 Area: ${l.areaSqm ? `${l.areaSqm.toLocaleString()} m²` : 'Not specified'}
+🏠 Type: ${l.propertyType || 'Not specified'}
+
+📝 FULL DESCRIPTION (READ THIS CAREFULLY):
+"${truncatedDesc}"
+
+📷 ${photoInfo}`;
+  }).join('\n');
+
+  // Detect if user is asking for visual features
+  const visualFeaturePatterns = [
+    { pattern: /sea\s*view|vista\s*mar|ocean|oceano|frente\s*mar|beach|praia/i, feature: 'sea/ocean view' },
+    { pattern: /pool|piscina|swimming/i, feature: 'swimming pool' },
+    { pattern: /garden|jardim|quintal/i, feature: 'garden' },
+    { pattern: /forest|floresta|trees|árvores|bosque|arborizado/i, feature: 'forest/trees' },
+    { pattern: /mountain|montanha|serra|monte/i, feature: 'mountain view' },
+    { pattern: /river|rio|ribeira/i, feature: 'river/riverside' },
+    { pattern: /terrace|terraço|varanda|balcony/i, feature: 'terrace/balcony' },
+    { pattern: /rural|countryside|campo|isolated|isolado/i, feature: 'rural setting' },
+    { pattern: /modern|moderno|contemporary|contemporâneo/i, feature: 'modern style' },
+  ];
+  
+  const requestedFeatures = visualFeaturePatterns
+    .filter(vf => vf.pattern.test(userQuery))
+    .map(vf => vf.feature);
+  
+  const visualFeatureNote = requestedFeatures.length > 0
+    ? `\n⚠️ USER IS SEARCHING FOR VISUAL FEATURES: ${requestedFeatures.join(', ')}\nCHECK EACH DESCRIPTION for mentions of these features. If a feature is NOT mentioned in the text, note it in your reasoning as "feature not confirmed in text - may need photo analysis".`
+    : '';
 
   if (isDetailed) {
     // Detailed analysis prompt for fewer results
     return `USER SEARCH QUERY: "${userQuery}"
+${visualFeatureNote}
 
-You are providing DETAILED property analysis. Since there are only ${listings.length} results, give thorough insights on each.
+CRITICAL INSTRUCTIONS:
+1. READ each listing's TITLE and DESCRIPTION CAREFULLY
+2. Identify what is ACTUALLY being offered based on the text
+3. Match the listing content against what the user wants
+4. Be SPECIFIC in your reasoning - cite actual words from the description
 
-For EACH listing, provide a comprehensive analysis:
-
-1. MATCH ASSESSMENT: How well does this match what the user is looking for?
-2. PROPERTY DETAILS: Key features, size, condition based on description
-3. LOCATION INSIGHTS: What's notable about the location/area?
-4. VALUE ANALYSIS: Is the price reasonable for what's offered?
-5. PROS & CONS: List specific advantages and potential concerns
-6. RECOMMENDATION: Should the user consider this? Why/why not?
+For EACH listing, analyze:
+✓ Does the TITLE indicate what user wants?
+✓ Does the DESCRIPTION mention the features user is looking for?
+✓ Is the location appropriate?
+✓ Is the price reasonable?
+✓ What specific keywords in the description support/reject this match?
 
 LISTINGS TO ANALYZE:
 ${listingSummaries}
 
-Return a JSON array. Each entry must have a "reasoning" field with 4-6 sentences covering the points above:
+Return a JSON array. Each entry MUST include specific details from the listing text:
 [
   {
     "id": "listing-id",
     "isRelevant": true/false,
     "relevanceScore": 0-100,
-    "reasoning": "Detailed analysis: [Match assessment]. [Property details]. [Location insights]. [Value analysis]. [Key pros/cons]. [Recommendation]."
+    "reasoning": "4-6 sentences citing SPECIFIC details from the listing. Example: 'The description mentions \"vista panorâmica para o mar\" confirming sea view. Listed as terreno urbano (buildable). Priced at €X/m² which is reasonable for the coastal area. However, no pool is mentioned in the text.'"
   }
 ]`;
   } else {
-    // Brief analysis prompt for many results
+    // Brief analysis for many results - but still MUST read descriptions
     return `USER SEARCH QUERY: "${userQuery}"
+${visualFeatureNote}
 
-IMPORTANT: Understand what the user REALLY wants. Parse their query for:
-- Property type (land, house, apartment, farm, etc.)
-- Specific features they mentioned
-- Their apparent purpose (farming, building, investment, living, etc.)
+YOUR TASK: Analyze these ${listings.length} Portuguese real estate listings.
 
-Now analyze these ${listings.length} listings from Portugal:
+CRITICAL: You MUST actually READ each listing's description to determine relevance.
+- Don't just look at titles - read the full description text
+- Look for Portuguese keywords that indicate features
+- Note when requested features are or aren't mentioned in the text
+
 ${listingSummaries}
 
-For EACH listing, determine if it genuinely matches what the user is looking for.
-Return a JSON array with brief analysis (2-3 sentences each):
+Return a JSON array. Each reasoning should cite SPECIFIC text from the listing:
 [
   {
     "id": "listing-id",
     "isRelevant": true/false,
     "relevanceScore": 0-100,
-    "reasoning": "2-3 sentence explanation of why this matches or doesn't match the user's needs."
+    "reasoning": "2-3 sentences citing specific details. Example: 'Description says \"excelente vista mar\" (sea view) and \"piscina privada\" (private pool). Located in ${listings[0]?.city || 'requested area'}.'"
   }
 ]`;
   }
@@ -1260,40 +1298,88 @@ Return a JSON array with brief analysis (2-3 sentences each):
 export const filterListingsByRelevance = async (
   userQuery: string,
   listings: ListingForAnalysis[],
-  options?: { skipAI?: boolean; timeout?: number; forceDetailed?: boolean }
+  options?: { skipAI?: boolean; timeout?: number; forceDetailed?: boolean; hasVisualFeatures?: boolean }
 ): Promise<ListingRelevanceResult[]> => {
   const skipAI = options?.skipAI ?? !AI_ANALYSIS_CONFIG.enableAIAnalysis;
   const timeout = options?.timeout ?? AI_ANALYSIS_CONFIG.analysisTimeoutMs;
   const forceDetailed = options?.forceDetailed ?? false;
+  const hasVisualFeatures = options?.hasVisualFeatures ?? false;
   
-  // Fast path: skip AI analysis entirely if disabled or too many listings
-  if (skipAI || listings.length > AI_ANALYSIS_CONFIG.maxListingsForAI) {
+  // Force AI if visual features detected (we need AI to understand context)
+  const shouldForceAI = hasVisualFeatures && AI_ANALYSIS_CONFIG.forceAIForVisualFeatures;
+  
+  // Fast path: skip AI analysis entirely if disabled (but not if visual features force it)
+  if (skipAI && !shouldForceAI) {
     console.log(`[AI Analysis] Using fast local analysis (skipAI=${skipAI}, listings=${listings.length})`);
     return analyzeListingsLocally(userQuery, listings, forceDetailed);
   }
 
   const health = await checkAIHealth();
 
-  // If no AI available, return all as relevant with neutral score
+  // If no AI available, use local analysis (not just return all as relevant)
   if (!health.available || listings.length === 0) {
-    return listings.map(l => ({
-      id: l.id,
-      isRelevant: true,
-      relevanceScore: 50,
-      reasoning: "AI unavailable - showing all results",
-    }));
+    console.log(`[AI Analysis] AI not available, using enhanced local analysis`);
+    return analyzeListingsLocally(userQuery, listings, forceDetailed);
   }
 
   // Determine if we should do detailed analysis based on listing count or force flag
   const isDetailed = forceDetailed || listings.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
-  console.log(`[AI Analysis] Mode: ${isDetailed ? 'DETAILED' : 'BRIEF'} (${listings.length} listings, threshold: ${AI_ANALYSIS_CONFIG.detailedAnalysisThreshold}, forced: ${forceDetailed})`);
+  
+  // **CRITICAL FIX**: Always use AI, but batch large result sets
+  const needsBatching = listings.length > AI_ANALYSIS_CONFIG.batchSize;
+  
+  console.log(`[AI Analysis] Mode: ${isDetailed ? 'DETAILED' : 'BRIEF'} (${listings.length} listings, batching: ${needsBatching}, visual features: ${hasVisualFeatures})`);
 
+  try {
+    let allResults: ListingRelevanceResult[] = [];
+    
+    if (needsBatching) {
+      // Process in batches to ensure AI actually analyzes all listings
+      const batches: ListingForAnalysis[][] = [];
+      for (let i = 0; i < listings.length; i += AI_ANALYSIS_CONFIG.batchSize) {
+        batches.push(listings.slice(i, i + AI_ANALYSIS_CONFIG.batchSize));
+      }
+      
+      console.log(`[AI Analysis] Processing ${batches.length} batches of ~${AI_ANALYSIS_CONFIG.batchSize} listings each...`);
+      
+      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        const batch = batches[batchIdx];
+        console.log(`[AI Analysis] Batch ${batchIdx + 1}/${batches.length}: Analyzing ${batch.length} listings with ${health.backend} backend...`);
+        
+        const batchResults = await analyzeListingBatch(userQuery, batch, health.backend!, isDetailed, timeout, hasVisualFeatures);
+        allResults = allResults.concat(batchResults);
+      }
+    } else {
+      // Single batch analysis
+      allResults = await analyzeListingBatch(userQuery, listings, health.backend!, isDetailed, timeout, hasVisualFeatures);
+    }
+    
+    console.log(`[AI Analysis] Completed: ${allResults.length} listings analyzed`);
+    return allResults;
+    
+  } catch (error) {
+    console.error("[AI Analysis] Failed:", error);
+    // Enhanced fallback: analyze listings locally with good heuristics
+    console.log(`[AI Analysis] Using enhanced local fallback (detailed: ${isDetailed})`);
+    return analyzeListingsLocally(userQuery, listings, isDetailed);
+  }
+};
+
+/**
+ * Analyze a single batch of listings with AI
+ */
+async function analyzeListingBatch(
+  userQuery: string,
+  listings: ListingForAnalysis[],
+  backend: string,
+  isDetailed: boolean,
+  timeout: number,
+  hasVisualFeatures: boolean
+): Promise<ListingRelevanceResult[]> {
   // Build the appropriate prompt
   const prompt = buildAnalysisPrompt(userQuery, listings, isDetailed);
 
   try {
-    console.log(`[AI Analysis] Analyzing ${listings.length} listings with ${health.backend} backend (timeout: ${timeout}ms)...`);
-
     // Add timeout wrapper for AI call
     const aiCallPromise = callAIWithFallback(prompt, LISTING_ANALYSIS_PROMPT);
     const timeoutPromise = new Promise<string>((_, reject) => 
@@ -1388,13 +1474,12 @@ export const filterListingsByRelevance = async (
       console.log("[AI Analysis] Response preview:", response.slice(0, 500));
     }
   } catch (error) {
-    console.error("[AI Analysis] Failed:", error);
+    console.error("[AI Analysis] Batch failed:", error);
   }
 
-  // Smart fallback: analyze listings locally without AI
-  console.log(`[AI Analysis] Using smart local fallback (detailed: ${isDetailed})`);
+  // Fallback for this batch
   return analyzeListingsLocally(userQuery, listings, isDetailed);
-};
+}
 
 /**
  * Local analysis fallback when AI is unavailable
@@ -1697,8 +1782,21 @@ export const getRelevantListings = async <T extends ListingForAnalysis>(
 ): Promise<{ listing: T; relevance: ListingRelevanceResult }[]> => {
   if (listings.length === 0) return [];
 
-  // Get AI relevance analysis
-  const relevanceResults = await filterListingsByRelevance(userQuery, listings);
+  // Detect if user is asking for visual features
+  const visualFeaturePatterns = [
+    /sea\s*view|vista\s*mar|ocean|oceano|frente\s*mar|beach|praia/i,
+    /pool|piscina|swimming/i,
+    /garden|jardim|quintal/i,
+    /forest|floresta|trees|árvores|bosque|arborizado/i,
+    /mountain|montanha|serra|monte/i,
+    /river|rio|ribeira/i,
+    /terrace|terraço|varanda|balcony/i,
+    /rural|countryside|campo|isolated|isolado/i,
+  ];
+  const hasVisualFeatures = visualFeaturePatterns.some(p => p.test(userQuery));
+
+  // Get AI relevance analysis - now with visual features flag
+  const relevanceResults = await filterListingsByRelevance(userQuery, listings, { hasVisualFeatures });
   const relevanceMap = new Map(relevanceResults.map(r => [r.id, r]));
 
   // Filter to only relevant listings and sort by relevance score
@@ -1725,7 +1823,7 @@ export const getRelevantListings = async <T extends ListingForAnalysis>(
     
     // Re-analyze just the final results with detailed prompts
     const finalListings = results.map(r => r.listing);
-    const detailedResults = await filterListingsByRelevance(userQuery, finalListings, { forceDetailed: true });
+    const detailedResults = await filterListingsByRelevance(userQuery, finalListings, { forceDetailed: true, hasVisualFeatures });
     const detailedMap = new Map(detailedResults.map(r => [r.id, r]));
     
     // Update results with detailed reasoning

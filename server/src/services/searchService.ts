@@ -250,198 +250,192 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
     appliedRange = nearMissRange;
   }
 
-  // AI Relevance Filtering: Analyze each listing's title, description, and photos
-  // to determine if it truly matches what the user is looking for
+  // ========== AI-DRIVEN SEARCH FLOW ==========
+  // 1. Extract visual features from query
+  // 2. AI analyzes ALL listing text (title + description) with full comprehension
+  // 3. AI determines relevance scores and notes missing visual features
+  // 4. Vision AI analyzes photos ONLY when AI says text doesn't confirm visual features
   
-  // Extract visual features from query (e.g., "sea view", "pool", "forest")
+  // Step 1: Detect visual feature requests
   const requestedVisualFeatures = extractImageFeatureQuery(request.query);
-  if (requestedVisualFeatures.length > 0) {
-    console.log(`[Search] Detected visual features in query: ${requestedVisualFeatures.join(", ")}`);
+  const hasVisualFeatureRequest = requestedVisualFeatures.length > 0;
+  
+  if (hasVisualFeatureRequest) {
+    console.log(`[Search] 🔍 Visual features detected in query: ${requestedVisualFeatures.join(", ")}`);
+    console.log(`[Search] AI will analyze listing text for these features, then vision AI for photos if needed`);
   }
   
+  // Step 2: Prepare listings for AI analysis (with FULL descriptions)
   const listingsForAnalysis = filtered.map(({ listing, distance }) => {
-    // Check if listing has pre-analyzed image features
-    const imageFeatures = (listing as any).imageFeatures as ImageFeature[] | undefined;
-    
-    // Calculate visual feature match score
-    let visualFeatureScore = 0;
-    let visualMatchedFeatures: string[] = [];
-    
-    if (requestedVisualFeatures.length > 0) {
-      // Check pre-analyzed image features
-      if (imageFeatures && imageFeatures.length > 0) {
-        const match = matchesFeatureQuery(imageFeatures, requestedVisualFeatures);
-        visualFeatureScore = match.score * 30; // Up to 30 bonus points
-        visualMatchedFeatures = match.matchedFeatures;
-      }
-      
-      // Also check title and description for visual feature keywords
-      const textContent = `${listing.title} ${listing.description || ''}`.toLowerCase();
-      const textMatches: string[] = [];
-      
-      // Feature keyword mapping for text matching
-      const featureTextPatterns: Record<string, RegExp> = {
-        sea: /\b(mar|sea|ocean|vista\s*mar|sea\s*view|ocean\s*view|frente\s*mar|praia|beach)\b/i,
-        ocean: /\b(ocean|oceano|ocean\s*view|vista\s*oceano)\b/i,
-        pool: /\b(piscina|pool|swimming)\b/i,
-        forest: /\b(floresta|forest|arborizado|trees|árvores|bosque)\b/i,
-        mountain: /\b(montanha|mountain|serra|vista\s*montanha|mountain\s*view)\b/i,
-        garden: /\b(jardim|garden|quintal)\b/i,
-        river: /\b(rio|river|ribeira|riverside)\b/i,
-        ruins: /\b(ruína|ruins?|abandonad[oa]|para\s*reconstruir|para\s*recuperar)\b/i,
-        modern: /\b(modern[oa]?|contemporary|contemporâne[oa])\b/i,
-        traditional: /\b(tradicional|traditional|típic[oa]|rústic[oa]|rustic)\b/i,
-        vineyard: /\b(vinha|vineyard|vinícola|vinho)\b/i,
-        terrace: /\b(terraço|terrace|varanda)\b/i,
-        balcony: /\b(varanda|balcon[y]?|sacada)\b/i,
-        parking: /\b(estacionamento|parking|garagem|garage)\b/i,
-        rural: /\b(rural|campo|countryside|isolad[oa])\b/i,
-      };
-      
-      for (const feature of requestedVisualFeatures) {
-        const pattern = featureTextPatterns[feature];
-        if (pattern && pattern.test(textContent)) {
-          textMatches.push(feature);
-        }
-      }
-      
-      // Add text match bonus (up to 20 points)
-      if (textMatches.length > 0) {
-        const textMatchScore = (textMatches.length / requestedVisualFeatures.length) * 20;
-        visualFeatureScore = Math.max(visualFeatureScore, visualFeatureScore + textMatchScore);
-        visualMatchedFeatures = [...new Set([...visualMatchedFeatures, ...textMatches])];
-      }
-    }
-    
     return {
       id: listing.id,
       title: listing.title,
-      description: listing.description,
+      description: listing.description, // FULL description - AI needs to read this
       photos: listing.photos,
       priceEur: listing.priceEur,
       areaSqm: listing.areaSqm,
       propertyType: listing.propertyType,
       city: listing.city,
       locationLabel: listing.city ?? listing.address ?? "Portugal",
-      // Visual feature data
-      visualFeatureScore,
-      visualMatchedFeatures,
-      requestedVisualFeatures,
       // Keep original data for later
       _original: listing,
       _distance: distance,
     };
   });
 
-  // Get AI-filtered relevant listings
-  const relevantListings = await getRelevantListings(request.query, listingsForAnalysis);
+  console.log(`[Search] 🤖 Starting AI analysis of ${listingsForAnalysis.length} listings...`);
 
-  // Smart Vision Analysis: Only trigger if visual features requested but NOT found in text
-  // This saves API calls by only analyzing photos when text doesn't have the info
+  // Step 3: Get AI-filtered relevant listings
+  // AI now:
+  // - Reads FULL title + description
+  // - Understands what's being offered
+  // - Checks if visual features are mentioned in text
+  // - Notes when features are "not confirmed in text" (triggers vision later)
+  const relevantListings = await getRelevantListings(request.query, listingsForAnalysis);
+  
+  console.log(`[Search] 🤖 AI analyzed ${relevantListings.length} relevant listings from ${listingsForAnalysis.length} total`);
+
+  // Step 4: Smart Vision Analysis
+  // Trigger ONLY when:
+  // - User requested visual features
+  // - AI's reasoning indicates feature "not confirmed in text" / "not mentioned"
+  // - Listing has photos to analyze
   let visionAnalyzedCount = 0;
-  if (requestedVisualFeatures.length > 0) {
+  const visionResults: Map<string, { features: string[], matched: boolean }> = new Map();
+  
+  if (hasVisualFeatureRequest) {
     const visionStatus = getVisionServiceStatus();
     
-    // Find listings that match other criteria but have NO text matches for visual features
-    const needsVisionAnalysis = relevantListings.filter(({ listing }) => {
-      const visualScore = (listing as any).visualFeatureScore || 0;
+    // Find listings where AI said visual features are NOT in the text
+    const needsVisionAnalysis = relevantListings.filter(({ listing, relevance }) => {
+      const reasoning = relevance.reasoning?.toLowerCase() || '';
       const hasPhoto = listing.photos && listing.photos.length > 0;
-      // Only analyze if: has photo, no text match, and relevance score is decent
-      return hasPhoto && visualScore === 0;
+      
+      // AI should indicate when features aren't found in text with phrases like:
+      // "not confirmed in text", "not mentioned", "no mention of", "may need photo analysis"
+      const textMissingFeature = 
+        reasoning.includes('not confirmed') ||
+        reasoning.includes('not mentioned') ||
+        reasoning.includes('no mention') ||
+        reasoning.includes('photo analysis') ||
+        reasoning.includes('check photo') ||
+        reasoning.includes('visual feature not') ||
+        // Also check if AI gave a lower score (suggesting uncertainty)
+        (relevance.relevanceScore < 70 && relevance.relevanceScore > 30);
+      
+      return hasPhoto && textMissingFeature;
     });
     
     if (needsVisionAnalysis.length > 0 && visionStatus.available) {
-      console.log(`[Search] Vision AI: ${needsVisionAnalysis.length} listings need photo analysis (no text matches)`);
+    if (needsVisionAnalysis.length > 0 && visionStatus.available) {
+      console.log(`[Search] 👁️ Vision AI: ${needsVisionAnalysis.length} listings need photo analysis (AI found visual features not confirmed in text)`);
       
-      // Limit vision analysis to top candidates (max 5 to keep search fast)
-      const maxVisionAnalysis = 5;
+      // Analyze more photos since AI pre-filtered these as needing vision
+      const maxVisionAnalysis = 8; // Increased since these are AI-selected candidates
       const toAnalyze = needsVisionAnalysis.slice(0, maxVisionAnalysis);
       
-      for (const { listing } of toAnalyze) {
+      for (const { listing, relevance } of toAnalyze) {
         try {
           const photoUrl = listing.photos[0];
-          console.log(`[Search] Vision AI: Analyzing photo for "${listing.title.substring(0, 40)}..."`);
+          console.log(`[Search] 👁️ Vision AI: Analyzing photo for "${listing.title.substring(0, 40)}..."`);
           
           const analysis = await analyzeImage(photoUrl);
           if (analysis && analysis.features.length > 0) {
             // Check if vision detected the requested features
             const match = matchesFeatureQuery(analysis.features, requestedVisualFeatures);
+            
+            // Store vision results
+            visionResults.set(listing.id, {
+              features: match.matchedFeatures,
+              matched: match.matches,
+            });
+            
             if (match.matches) {
-              // Update the listing's visual score
-              (listing as any).visualFeatureScore = match.score * 30;
-              (listing as any).visualMatchedFeatures = match.matchedFeatures;
+              // Mark listing as vision-analyzed with matches
               (listing as any).visionAnalyzed = true;
+              (listing as any).visualMatchedFeatures = match.matchedFeatures;
+              (listing as any).visionScore = match.score * 25; // Up to 25 bonus points from vision
               visionAnalyzedCount++;
-              console.log(`[Search] Vision AI: Found ${match.matchedFeatures.join(", ")} in photo!`);
+              console.log(`[Search] 👁️ Vision AI: ✓ Found ${match.matchedFeatures.join(", ")} in photo!`);
+            } else {
+              // Analyzed but didn't find requested features
+              (listing as any).visionAnalyzed = true;
+              (listing as any).visualMatchedFeatures = [];
+              console.log(`[Search] 👁️ Vision AI: ✗ Requested features not visible in photo`);
             }
           }
         } catch (error) {
-          console.error(`[Search] Vision AI error:`, error);
+          console.error(`[Search] 👁️ Vision AI error:`, error);
         }
       }
       
       if (visionAnalyzedCount > 0) {
-        console.log(`[Search] Vision AI: ${visionAnalyzedCount} listings matched via photo analysis`);
+        console.log(`[Search] 👁️ Vision AI: ${visionAnalyzedCount}/${toAnalyze.length} listings matched requested visual features via photo analysis`);
       }
     } else if (needsVisionAnalysis.length > 0 && !visionStatus.available) {
-      console.log(`[Search] Vision AI not available, skipping photo analysis`);
+      console.log(`[Search] Vision AI not available, skipping photo analysis for ${needsVisionAnalysis.length} candidates`);
     }
   }
 
-  // Boost listings that match visual features and sort by combined score
+  // Step 5: Combine AI text analysis scores with vision results
   const sortedListings = relevantListings
     .map(({ listing, relevance }) => {
-      const visualScore = (listing as any).visualFeatureScore || 0;
+      const visionScore = (listing as any).visionScore || 0;
       const visualMatches = (listing as any).visualMatchedFeatures || [];
-      const combinedScore = relevance.relevanceScore + visualScore;
+      const wasVisionAnalyzed = (listing as any).visionAnalyzed || false;
       
-      // Enhance reasoning with visual feature info
-      let enhancedReasoning = relevance.reasoning;
-      if (visualMatches.length > 0) {
-        enhancedReasoning += ` [Visual matches: ${visualMatches.join(", ")}]`;
+      // Combine AI text score with vision bonus
+      const combinedScore = Math.min(100, relevance.relevanceScore + visionScore);
+      
+      // Enhance reasoning with vision info
+      let enhancedReasoning = relevance.reasoning || '';
+      if (wasVisionAnalyzed && visualMatches.length > 0) {
+        enhancedReasoning += ` [📷 Photo confirmed: ${visualMatches.join(", ")}]`;
+      } else if (wasVisionAnalyzed && visualMatches.length === 0 && hasVisualFeatureRequest) {
+        enhancedReasoning += ` [📷 Photo analyzed: requested features not visible]`;
       }
       
       return {
         listing,
         relevance: {
           ...relevance,
-          relevanceScore: Math.min(100, combinedScore), // Cap at 100
+          relevanceScore: combinedScore,
           reasoning: enhancedReasoning,
         },
-        visualScore,
+        visionScore,
+        visualMatches,
+        wasVisionAnalyzed,
       };
     })
     .sort((a, b) => b.relevance.relevanceScore - a.relevance.relevanceScore);
 
-  // If visual features were requested, prioritize listings with matches
+  // Step 6: Final ordering - prioritize vision-confirmed matches
   let finalListings = sortedListings;
-  if (requestedVisualFeatures.length > 0) {
-    // Separate listings with visual matches from those without
-    const withVisualMatch = sortedListings.filter(l => l.visualScore > 0);
-    const withoutVisualMatch = sortedListings.filter(l => l.visualScore === 0);
+  if (hasVisualFeatureRequest) {
+    // Three tiers: 1) Vision confirmed, 2) Text confirmed (high AI score), 3) Others
+    const visionConfirmed = sortedListings.filter(l => l.wasVisionAnalyzed && l.visualMatches.length > 0);
+    const textConfirmed = sortedListings.filter(l => 
+      !l.wasVisionAnalyzed && l.relevance.relevanceScore >= 75
+    );
+    const others = sortedListings.filter(l => 
+      !(l.wasVisionAnalyzed && l.visualMatches.length > 0) && 
+      !(l.relevance.relevanceScore >= 75 && !l.wasVisionAnalyzed)
+    );
     
-    // Put visual matches first, then others
-    finalListings = [...withVisualMatch, ...withoutVisualMatch];
+    finalListings = [...visionConfirmed, ...textConfirmed, ...others];
     
-    if (withVisualMatch.length > 0) {
-      console.log(`[Search] ${withVisualMatch.length} listings match visual features (${requestedVisualFeatures.join(", ")})`);
-    } else {
-      console.log(`[Search] No listings found with exact visual feature matches, showing best available`);
-    }
+    console.log(`[Search] 📊 Results: ${visionConfirmed.length} vision-confirmed, ${textConfirmed.length} text-confirmed, ${others.length} other`);
   }
 
   // Convert to response format with AI relevance scores
-  const responseListings = finalListings.map(({ listing, relevance }) => {
-    const visionAnalyzed = (listing as any).visionAnalyzed || false;
-    const visualMatchedFeatures = (listing as any).visualMatchedFeatures || [];
-    
+  const responseListings = finalListings.map(({ listing, relevance, wasVisionAnalyzed, visualMatches }) => {
     return toCard(
       listing._original as Listing, 
       listing._distance, 
       relevance.relevanceScore,
       relevance.reasoning,
-      visionAnalyzed,
-      visualMatchedFeatures
+      wasVisionAnalyzed,
+      visualMatches
     );
   });
 
@@ -455,30 +449,31 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
 
   const aiFilteredCount = filtered.length - finalListings.length;
   const listingTypeLabel = parsed.listingIntent === 'rent' ? 'for rent' : parsed.listingIntent === 'sale' ? 'for sale' : '';
-  const visualFeatureLabel = requestedVisualFeatures.length > 0 
+  const visualFeatureLabel = hasVisualFeatureRequest 
     ? ` with ${requestedVisualFeatures.join(", ")}` 
     : '';
   
-  // Count how many have visual matches
-  const visualMatchCount = finalListings.filter(l => l.visualScore > 0).length;
+  // Count statistics
+  const visionConfirmedCount = finalListings.filter(l => l.wasVisionAnalyzed && l.visualMatches.length > 0).length;
+  const textConfirmedCount = finalListings.filter(l => l.relevance.relevanceScore >= 75).length;
   
   let note =
     matchType === "exact"
       ? aiFilteredCount > 0 
-        ? `Found ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}${aiFilteredCount > 0 ? ` (filtered from ${filtered.length})` : ''}.`
-        : `Showing ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}.`.trim()
+        ? `🤖 AI analyzed ${filtered.length} listings, showing ${finalListings.length} most relevant${visualFeatureLabel}.`
+        : `🤖 AI found ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}.`.trim()
       : aiFilteredCount > 0
-        ? `AI analyzed ${filtered.length} near-miss results, showing ${finalListings.length} most relevant ${listingTypeLabel}${visualFeatureLabel}.`
-        : `No exact matches. Showing ${finalListings.length} closest ${listingTypeLabel}${visualFeatureLabel} matches.`.trim();
+        ? `🤖 AI analyzed ${filtered.length} near-miss results, showing ${finalListings.length} most relevant${visualFeatureLabel}.`
+        : `No exact matches. Showing ${finalListings.length} closest${visualFeatureLabel} matches.`.trim();
   
-  // Add visual feature match info
-  if (requestedVisualFeatures.length > 0 && visualMatchCount > 0) {
-    note += ` ${visualMatchCount} listings mention these features.`;
-  }
-  
-  // Add vision analysis info
-  if (visionAnalyzedCount > 0) {
-    note += ` 🔍 AI analyzed ${visionAnalyzedCount} photos to find matches.`;
+  // Add visual feature confirmation info
+  if (hasVisualFeatureRequest) {
+    if (visionConfirmedCount > 0) {
+      note += ` 📷 ${visionConfirmedCount} confirmed via photo analysis.`;
+    }
+    if (textConfirmedCount > 0 && visionConfirmedCount === 0) {
+      note += ` ${textConfirmedCount} mention these features in description.`;
+    }
   }
 
   return {
@@ -490,6 +485,6 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
     listings: responseListings,
     blockedSites,
     // Include detected visual features in response
-    detectedVisualFeatures: requestedVisualFeatures.length > 0 ? requestedVisualFeatures : undefined,
+    detectedVisualFeatures: hasVisualFeatureRequest ? requestedVisualFeatures : undefined,
   };
 };
