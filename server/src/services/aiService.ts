@@ -371,7 +371,7 @@ async function callGroq(prompt: string, system?: string, conversationHistory?: A
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeout = setTimeout(() => controller.abort(), 40000); // 40 second timeout
 
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
@@ -383,7 +383,7 @@ async function callGroq(prompt: string, system?: string, conversationHistory?: A
           model: GROQ_MODEL,
           messages,
           temperature: 0.7,
-          max_tokens: 1024,
+          max_tokens: 4096,
         }),
         signal: controller.signal,
       });
@@ -536,7 +536,7 @@ async function callClaude(prompt: string, system?: string, conversationHistory?:
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: system || "You are a helpful assistant.",
       messages,
     }),
@@ -1166,16 +1166,16 @@ Return ONLY valid JSON - no explanations outside the JSON array.`;
 
 // Configuration for AI analysis behavior
 const AI_ANALYSIS_CONFIG = {
-  // Maximum listings to analyze in a single AI call (will batch if more)
-  batchSize: 12, // Smaller batches = more detailed analysis per listing
+  // Maximum listings to analyze in a single AI call (smaller = faster response)
+  batchSize: 8, // Reduced from 12 - faster AI responses
   // Maximum total listings for AI analysis (larger sets use smart pre-filtering)
-  maxListingsForAI: 100, // Increased from 20 - always try AI first
-  // Timeout for AI analysis in milliseconds (increased for Ollama fallback)
-  analysisTimeoutMs: 90000, // Increased timeout for batched analysis
-  // Enable/disable AI listing analysis (set to false for faster searches)
+  maxListingsForAI: 100, // Always try AI first
+  // Timeout for AI analysis in milliseconds
+  analysisTimeoutMs: 45000, // 45 seconds - reduced from 90 to fail faster
+  // Enable/disable AI listing analysis
   enableAIAnalysis: true,
   // Threshold for detailed vs brief analysis
-  detailedAnalysisThreshold: 20, // Increased - more listings get detailed analysis
+  detailedAnalysisThreshold: 20, // More listings get detailed analysis
   // ALWAYS use AI when visual features are detected
   forceAIForVisualFeatures: true,
 };
@@ -1196,8 +1196,8 @@ function buildAnalysisPrompt(userQuery: string, listings: ListingForAnalysis[], 
       : 'No description provided';
     
     // ALWAYS include enough description for AI to understand the listing
-    // Increased limits significantly - AI needs to READ the actual content
-    const descLength = isDetailed ? 2000 : 1200;
+    // Keep descriptions concise to avoid token limits and timeouts
+    const descLength = isDetailed ? 800 : 500;
     const truncatedDesc = cleanDesc.length > descLength 
       ? cleanDesc.slice(0, descLength) + '...'
       : cleanDesc;
