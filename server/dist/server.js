@@ -3865,6 +3865,44 @@ var runSearch = async (request) => {
     };
   });
   const relevantListings = await getRelevantListings(request.query, listingsForAnalysis);
+  let visionAnalyzedCount = 0;
+  if (requestedVisualFeatures.length > 0) {
+    const visionStatus = getVisionServiceStatus();
+    const needsVisionAnalysis = relevantListings.filter(({ listing }) => {
+      const visualScore = listing.visualFeatureScore || 0;
+      const hasPhoto = listing.photos && listing.photos.length > 0;
+      return hasPhoto && visualScore === 0;
+    });
+    if (needsVisionAnalysis.length > 0 && visionStatus.available) {
+      console.log(`[Search] Vision AI: ${needsVisionAnalysis.length} listings need photo analysis (no text matches)`);
+      const maxVisionAnalysis = 5;
+      const toAnalyze = needsVisionAnalysis.slice(0, maxVisionAnalysis);
+      for (const { listing } of toAnalyze) {
+        try {
+          const photoUrl = listing.photos[0];
+          console.log(`[Search] Vision AI: Analyzing photo for "${listing.title.substring(0, 40)}..."`);
+          const analysis = await analyzeImage(photoUrl);
+          if (analysis && analysis.features.length > 0) {
+            const match = matchesFeatureQuery(analysis.features, requestedVisualFeatures);
+            if (match.matches) {
+              listing.visualFeatureScore = match.score * 30;
+              listing.visualMatchedFeatures = match.matchedFeatures;
+              listing.visionAnalyzed = true;
+              visionAnalyzedCount++;
+              console.log(`[Search] Vision AI: Found ${match.matchedFeatures.join(", ")} in photo!`);
+            }
+          }
+        } catch (error) {
+          console.error(`[Search] Vision AI error:`, error);
+        }
+      }
+      if (visionAnalyzedCount > 0) {
+        console.log(`[Search] Vision AI: ${visionAnalyzedCount} listings matched via photo analysis`);
+      }
+    } else if (needsVisionAnalysis.length > 0 && !visionStatus.available) {
+      console.log(`[Search] Vision AI not available, skipping photo analysis`);
+    }
+  }
   const sortedListings = relevantListings.map(({ listing, relevance }) => {
     const visualScore = listing.visualFeatureScore || 0;
     const visualMatches = listing.visualMatchedFeatures || [];
@@ -3916,6 +3954,9 @@ var runSearch = async (request) => {
   let note = matchType === "exact" ? aiFilteredCount > 0 ? `Found ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}${aiFilteredCount > 0 ? ` (filtered from ${filtered.length})` : ""}.` : `Showing ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}.`.trim() : aiFilteredCount > 0 ? `AI analyzed ${filtered.length} near-miss results, showing ${finalListings.length} most relevant ${listingTypeLabel}${visualFeatureLabel}.` : `No exact matches. Showing ${finalListings.length} closest ${listingTypeLabel}${visualFeatureLabel} matches.`.trim();
   if (requestedVisualFeatures.length > 0 && visualMatchCount > 0) {
     note += ` ${visualMatchCount} listings mention these features.`;
+  }
+  if (visionAnalyzedCount > 0) {
+    note += ` \u{1F50D} AI analyzed ${visionAnalyzedCount} photos to find matches.`;
   }
   return {
     searchId,
