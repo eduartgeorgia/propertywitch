@@ -2847,21 +2847,24 @@ When user asks for visual features (sea view, pool, forest, etc.), CHECK IF THE 
 Return ONLY valid JSON - no explanations outside the JSON array.`;
 var AI_ANALYSIS_CONFIG = {
   // Maximum listings to analyze in a single AI call (smaller = faster response)
-  batchSize: 8,
-  // Reduced from 12 - faster AI responses
+  batchSize: 5,
+  // Reduced from 8 to avoid Groq rate limits
   // Maximum total listings for AI analysis (larger sets use smart pre-filtering)
-  maxListingsForAI: 100,
-  // Always try AI first
+  maxListingsForAI: 50,
+  // Reduced to avoid rate limits
   // Timeout for AI analysis in milliseconds
   analysisTimeoutMs: 45e3,
   // 45 seconds - reduced from 90 to fail faster
   // Enable/disable AI listing analysis
   enableAIAnalysis: true,
   // Threshold for detailed vs brief analysis
-  detailedAnalysisThreshold: 20,
-  // More listings get detailed analysis
+  detailedAnalysisThreshold: 15,
+  // Reduced for faster responses
   // ALWAYS use AI when visual features are detected
-  forceAIForVisualFeatures: true
+  forceAIForVisualFeatures: true,
+  // Delay between batches to avoid rate limits (ms)
+  batchDelayMs: 2e3
+  // 2 seconds between batches
 };
 function buildAnalysisPrompt(userQuery, listings, isDetailed) {
   const listingSummaries = listings.map((l, idx) => {
@@ -2990,6 +2993,10 @@ var filterListingsByRelevance = async (userQuery, listings, options) => {
         console.log(`[AI Analysis] Batch ${batchIdx + 1}/${batches.length}: Analyzing ${batch.length} listings with ${health.backend} backend...`);
         const batchResults = await analyzeListingBatch(userQuery, batch, health.backend, isDetailed, timeout, hasVisualFeatures);
         allResults = allResults.concat(batchResults);
+        if (batchIdx < batches.length - 1) {
+          console.log(`[AI Analysis] Waiting ${AI_ANALYSIS_CONFIG.batchDelayMs}ms before next batch to avoid rate limits...`);
+          await new Promise((resolve) => setTimeout(resolve, AI_ANALYSIS_CONFIG.batchDelayMs));
+        }
       }
     } else {
       allResults = await analyzeListingBatch(userQuery, listings, health.backend, isDetailed, timeout, hasVisualFeatures);
