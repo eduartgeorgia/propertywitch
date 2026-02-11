@@ -108,7 +108,7 @@ const App = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      text: "🧙‍♀️ Hi! I'm your AI Property Witch. Tell me what you're looking for in Portugal and I'll conjure up the listings for you. You can also ask me questions about the results or Portuguese real estate in general.",
+      text: "🏡 **Welcome to Property Witch** - Your AI-powered Portuguese real estate assistant!\n\nI search **live listings** from OLX Portugal and help you find your dream property. Just describe what you're looking for!\n\n**Try asking:**\n• \"Land under €30,000 near Lisbon\"\n• \"Apartments in Porto with sea view\"\n• \"Cheap houses in Algarve for renovation\"\n• \"Rural property with pool under €100k\"\n\n_I can also answer questions about Portuguese real estate, taxes, and the buying process._",
       type: "chat",
     },
   ]);
@@ -388,7 +388,7 @@ const App = () => {
       setCurrentThreadId(data.id);
       setMessages([{
         role: "assistant",
-        text: "🧙‍♀️ Hi! I'm your AI Property Witch. Tell me what you're looking for in Portugal and I'll conjure up the listings for you. You can also ask me questions about the results or Portuguese real estate in general.",
+        text: "🏡 **Welcome to Property Witch** - Your AI-powered Portuguese real estate assistant!\n\nI search **live listings** from OLX Portugal and help you find your dream property. Just describe what you're looking for!\n\n**Try asking:**\n• \"Land under €30,000 near Lisbon\"\n• \"Apartments in Porto with sea view\"\n• \"Cheap houses in Algarve for renovation\"\n• \"Rural property with pool under €100k\"\n\n_I can also answer questions about Portuguese real estate, taxes, and the buying process._",
         type: "chat",
       }]);
       setSearchResponse(null);
