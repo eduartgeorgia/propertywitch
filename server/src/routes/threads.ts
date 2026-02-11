@@ -2,7 +2,8 @@
  * Thread API Routes - Manage chat threads
  */
 
-import { Router } from "express";
+import { Router, Request, Response } from "express";
+import crypto from "crypto";
 import {
   createThread,
   getThread,
@@ -17,12 +18,47 @@ import {
 
 const router = Router();
 
-/**
- * Get all threads
- */
-router.get("/threads", (_req, res) => {
+// JWT secret (must match auth.ts)
+const JWT_SECRET = process.env.JWT_SECRET || "property-witch-secret-key-change-in-production";
+
+// Extract user ID from token (returns null for anonymous users)
+function getUserIdFromRequest(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return null;
+  }
+  
   try {
-    const threads = getAllThreads();
+    const token = authHeader.substring(7);
+    const [payloadB64, signature] = token.split(".");
+    const expectedSignature = crypto
+      .createHmac("sha256", JWT_SECRET)
+      .update(payloadB64)
+      .digest("base64url");
+    
+    if (signature !== expectedSignature) {
+      return null;
+    }
+    
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
+    
+    if (payload.exp < Date.now()) {
+      return null;
+    }
+    
+    return payload.id || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get all threads for the current user
+ */
+router.get("/threads", (req: Request, res: Response) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    const threads = getAllThreads(userId);
     // Return summary without full message history
     const summary = threads.map(t => ({
       id: t.id,
@@ -42,12 +78,13 @@ router.get("/threads", (_req, res) => {
 });
 
 /**
- * Create a new thread
+ * Create a new thread for the current user
  */
-router.post("/threads", (req, res) => {
+router.post("/threads", (req: Request, res: Response) => {
   try {
+    const userId = getUserIdFromRequest(req);
     const { initialMessage } = req.body;
-    const thread = createThread(initialMessage);
+    const thread = createThread(initialMessage, userId);
     return res.json({
       id: thread.id,
       title: thread.title,
@@ -62,14 +99,21 @@ router.post("/threads", (req, res) => {
 
 /**
  * Get a specific thread with full history
+ * Only returns if user owns the thread or thread is anonymous
  */
-router.get("/threads/:threadId", (req, res) => {
+router.get("/threads/:threadId", (req: Request, res: Response) => {
   try {
+    const userId = getUserIdFromRequest(req);
     const { threadId } = req.params;
     const thread = getThread(threadId);
     
     if (!thread) {
       return res.status(404).json({ error: "Thread not found" });
+    }
+    
+    // Check ownership: user can access their own threads or anonymous threads if they're anonymous
+    if (thread.userId !== null && thread.userId !== userId) {
+      return res.status(403).json({ error: "Access denied" });
     }
     
     return res.json(thread);
@@ -80,11 +124,23 @@ router.get("/threads/:threadId", (req, res) => {
 });
 
 /**
- * Delete a thread
+ * Delete a thread (only owner can delete)
  */
-router.delete("/threads/:threadId", (req, res) => {
+router.delete("/threads/:threadId", (req: Request, res: Response) => {
   try {
+    const userId = getUserIdFromRequest(req);
     const { threadId } = req.params;
+    const thread = getThread(threadId);
+    
+    if (!thread) {
+      return res.status(404).json({ error: "Thread not found" });
+    }
+    
+    // Check ownership
+    if (thread.userId !== null && thread.userId !== userId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    
     const deleted = deleteThread(threadId);
     
     if (!deleted) {

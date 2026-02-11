@@ -4663,11 +4663,12 @@ function generateTitle(message) {
   const title = firstSentence.length > 40 ? firstSentence.slice(0, 40) + "..." : firstSentence;
   return title || "New conversation";
 }
-function createThread(initialMessage) {
+function createThread(initialMessage, userId) {
   const id = generateThreadId();
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const thread = {
     id,
+    userId: userId || null,
     title: initialMessage ? generateTitle(initialMessage) : "New conversation",
     createdAt: now,
     updatedAt: now,
@@ -4680,14 +4681,18 @@ function createThread(initialMessage) {
     type: "chat"
   });
   threads.set(id, thread);
-  console.log(`[Threads] Created new thread: ${id}`);
+  console.log(`[Threads] Created new thread: ${id} for user: ${userId || "anonymous"}`);
   return thread;
 }
 function getThread(threadId) {
   return threads.get(threadId) || null;
 }
-function getAllThreads() {
-  return Array.from(threads.values()).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+function getAllThreads(userId) {
+  const allThreads = Array.from(threads.values());
+  if (userId !== void 0) {
+    return allThreads.filter((t) => t.userId === userId).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+  return allThreads.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 function addMessage(threadId, role, content, type, searchContext) {
   const thread = threads.get(threadId);
@@ -6015,10 +6020,34 @@ var index_listings_default = router8;
 
 // src/routes/threads.ts
 var import_express9 = require("express");
+var import_crypto = __toESM(require("crypto"));
 var router9 = (0, import_express9.Router)();
-router9.get("/threads", (_req, res) => {
+var JWT_SECRET = process.env.JWT_SECRET || "property-witch-secret-key-change-in-production";
+function getUserIdFromRequest(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return null;
+  }
   try {
-    const threads2 = getAllThreads();
+    const token = authHeader.substring(7);
+    const [payloadB64, signature] = token.split(".");
+    const expectedSignature = import_crypto.default.createHmac("sha256", JWT_SECRET).update(payloadB64).digest("base64url");
+    if (signature !== expectedSignature) {
+      return null;
+    }
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
+    if (payload.exp < Date.now()) {
+      return null;
+    }
+    return payload.id || null;
+  } catch {
+    return null;
+  }
+}
+router9.get("/threads", (req, res) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    const threads2 = getAllThreads(userId);
     const summary = threads2.map((t) => ({
       id: t.id,
       title: t.title,
@@ -6035,8 +6064,9 @@ router9.get("/threads", (_req, res) => {
 });
 router9.post("/threads", (req, res) => {
   try {
+    const userId = getUserIdFromRequest(req);
     const { initialMessage } = req.body;
-    const thread = createThread(initialMessage);
+    const thread = createThread(initialMessage, userId);
     return res.json({
       id: thread.id,
       title: thread.title,
@@ -6050,10 +6080,14 @@ router9.post("/threads", (req, res) => {
 });
 router9.get("/threads/:threadId", (req, res) => {
   try {
+    const userId = getUserIdFromRequest(req);
     const { threadId } = req.params;
     const thread = getThread(threadId);
     if (!thread) {
       return res.status(404).json({ error: "Thread not found" });
+    }
+    if (thread.userId !== null && thread.userId !== userId) {
+      return res.status(403).json({ error: "Access denied" });
     }
     return res.json(thread);
   } catch (error) {
@@ -6063,7 +6097,15 @@ router9.get("/threads/:threadId", (req, res) => {
 });
 router9.delete("/threads/:threadId", (req, res) => {
   try {
+    const userId = getUserIdFromRequest(req);
     const { threadId } = req.params;
+    const thread = getThread(threadId);
+    if (!thread) {
+      return res.status(404).json({ error: "Thread not found" });
+    }
+    if (thread.userId !== null && thread.userId !== userId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
     const deleted = deleteThread(threadId);
     if (!deleted) {
       return res.status(404).json({ error: "Thread not found" });
@@ -6361,7 +6403,7 @@ var indexer_default = router10;
 
 // src/routes/auth.ts
 var import_express11 = require("express");
-var import_crypto = __toESM(require("crypto"));
+var import_crypto2 = __toESM(require("crypto"));
 var import_path = __toESM(require("path"));
 var import_fs = __toESM(require("fs"));
 var router11 = (0, import_express11.Router)();
@@ -6370,7 +6412,7 @@ var USERS_FILE = import_path.default.join(DATA_DIR2, "users.json");
 if (!import_fs.default.existsSync(DATA_DIR2)) {
   import_fs.default.mkdirSync(DATA_DIR2, { recursive: true });
 }
-var JWT_SECRET = process.env.JWT_SECRET || "property-witch-secret-key-change-in-production";
+var JWT_SECRET2 = process.env.JWT_SECRET || "property-witch-secret-key-change-in-production";
 var loadUsers = () => {
   try {
     if (import_fs.default.existsSync(USERS_FILE)) {
@@ -6385,7 +6427,7 @@ var saveUsers = (db) => {
   import_fs.default.writeFileSync(USERS_FILE, JSON.stringify(db, null, 2));
 };
 var hashPassword = (password) => {
-  return import_crypto.default.createHash("sha256").update(password + JWT_SECRET).digest("hex");
+  return import_crypto2.default.createHash("sha256").update(password + JWT_SECRET2).digest("hex");
 };
 var generateToken = (user) => {
   const payload = {
@@ -6398,13 +6440,13 @@ var generateToken = (user) => {
     // 7 days
   };
   const base64Payload = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const signature = import_crypto.default.createHmac("sha256", JWT_SECRET).update(base64Payload).digest("base64url");
+  const signature = import_crypto2.default.createHmac("sha256", JWT_SECRET2).update(base64Payload).digest("base64url");
   return `${base64Payload}.${signature}`;
 };
 var verifyToken = (token) => {
   try {
     const [payloadB64, signature] = token.split(".");
-    const expectedSignature = import_crypto.default.createHmac("sha256", JWT_SECRET).update(payloadB64).digest("base64url");
+    const expectedSignature = import_crypto2.default.createHmac("sha256", JWT_SECRET2).update(payloadB64).digest("base64url");
     if (signature !== expectedSignature) {
       return { valid: false };
     }
@@ -6495,7 +6537,7 @@ router11.post("/register", async (req, res) => {
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const newUser = {
-      id: import_crypto.default.randomUUID(),
+      id: import_crypto2.default.randomUUID(),
       email: email.toLowerCase(),
       passwordHash: hashPassword(password),
       name,

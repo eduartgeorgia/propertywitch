@@ -13,6 +13,7 @@ export type ChatMessage = {
 
 export type ChatThread = {
   id: string;
+  userId: string | null; // null for anonymous users
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -44,12 +45,13 @@ function generateTitle(message: string): string {
 /**
  * Create a new chat thread
  */
-export function createThread(initialMessage?: string): ChatThread {
+export function createThread(initialMessage?: string, userId?: string | null): ChatThread {
   const id = generateThreadId();
   const now = new Date().toISOString();
   
   const thread: ChatThread = {
     id,
+    userId: userId || null,
     title: initialMessage ? generateTitle(initialMessage) : "New conversation",
     createdAt: now,
     updatedAt: now,
@@ -65,7 +67,7 @@ export function createThread(initialMessage?: string): ChatThread {
   });
   
   threads.set(id, thread);
-  console.log(`[Threads] Created new thread: ${id}`);
+  console.log(`[Threads] Created new thread: ${id} for user: ${userId || 'anonymous'}`);
   return thread;
 }
 
@@ -78,9 +80,21 @@ export function getThread(threadId: string): ChatThread | null {
 
 /**
  * Get all threads (sorted by most recent)
+ * If userId is provided, only returns threads for that user
+ * If userId is null, returns threads with no user (anonymous)
  */
-export function getAllThreads(): ChatThread[] {
-  return Array.from(threads.values())
+export function getAllThreads(userId?: string | null): ChatThread[] {
+  const allThreads = Array.from(threads.values());
+  
+  // If userId is provided, filter by that user
+  if (userId !== undefined) {
+    return allThreads
+      .filter(t => t.userId === userId)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+  
+  // Otherwise return all threads (backwards compatibility)
+  return allThreads
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 

@@ -1905,6 +1905,7 @@ button:disabled {
   cursor: pointer;
   border-radius: 8px;
   transition: background 0.2s;
+  color: var(--ink);
 }
 
 .user-dropdown-actions button:hover {

@@ -374,7 +374,12 @@ const App = () => {
   // Fetch threads list
   const fetchThreads = useCallback(async () => {
     try {
-      const res = await fetchWithRetry("/api/threads", {}, 2, 1000);
+      const headers: Record<string, string> = {};
+      const token = localStorage.getItem("auth_token");
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const res = await fetchWithRetry("/api/threads", { headers }, 2, 1000);
       const data = await res.json();
       setThreads(data.threads || []);
     } catch (error) {
@@ -386,9 +391,14 @@ const App = () => {
   const createNewThread = useCallback(async () => {
     setLoadingThreads(true);
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const token = localStorage.getItem("auth_token");
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const res = await fetchWithRetry("/api/threads", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({}),
       }, 2, 1000);
       const data = await res.json();
@@ -415,7 +425,12 @@ const App = () => {
   const loadThread = useCallback(async (threadId: string) => {
     setLoadingThreads(true);
     try {
-      const res = await fetchWithRetry(`/api/threads/${threadId}`, {}, 2, 1000);
+      const headers: Record<string, string> = {};
+      const token = localStorage.getItem("auth_token");
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const res = await fetchWithRetry(`/api/threads/${threadId}`, { headers }, 2, 1000);
       const data = await res.json();
       
       setCurrentThreadId(threadId);
@@ -436,7 +451,12 @@ const App = () => {
   // Delete a thread
   const deleteThread = useCallback(async (threadId: string) => {
     try {
-      await fetchWithRetry(`/api/threads/${threadId}`, { method: "DELETE" }, 2, 1000);
+      const headers: Record<string, string> = {};
+      const token = localStorage.getItem("auth_token");
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      await fetchWithRetry(`/api/threads/${threadId}`, { method: "DELETE", headers }, 2, 1000);
       
       // If we deleted the current thread, create a new one
       if (threadId === currentThreadId) {
@@ -455,7 +475,12 @@ const App = () => {
     const initThreads = async () => {
       await fetchThreads();
       // Create a new thread if none exist
-      const res = await fetchWithRetry("/api/threads", {}, 2, 1000);
+      const headers: Record<string, string> = {};
+      const token = localStorage.getItem("auth_token");
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const res = await fetchWithRetry("/api/threads", { headers }, 2, 1000);
       const data = await res.json();
       if (!data.threads || data.threads.length === 0) {
         await createNewThread();
@@ -608,15 +633,29 @@ const App = () => {
   }, []);
 
   // Auth handlers
-  const handleAuthSuccess = (newUser: User, token: string) => {
+  const handleAuthSuccess = async (newUser: User, token: string) => {
     setUser(newUser);
     setAuthToken(token);
+    // Refresh threads for the logged-in user
+    await fetchThreads();
+    // Create a new thread for the user if they have none
+    const headers = { Authorization: `Bearer ${token}` };
+    const res = await fetchWithRetry("/api/threads", { headers }, 2, 1000);
+    const data = await res.json();
+    if (!data.threads || data.threads.length === 0) {
+      await createNewThread();
+    } else {
+      await loadThread(data.threads[0].id);
+    }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     localStorage.removeItem("auth_token");
     setUser(null);
     setAuthToken(null);
+    // Refresh threads for anonymous user and create a new conversation
+    await fetchThreads();
+    await createNewThread();
   };
 
   const handleSubscriptionUpdate = (updatedUser: User, token: string) => {
