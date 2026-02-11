@@ -49,5 +49,5 @@ export const GOOGLE_SEARCH = {
   apiKey: process.env.GOOGLE_SEARCH_API_KEY || "AIzaSyDr8ZReRh86y9bU8RNenqPKzrYXASB-DPs",
   // Create a Programmable Search Engine at: https://programmablesearchengine.google.com/
   // Configure it to search: idealista.pt, imovirtual.com, casasapo.pt, supercasa.pt, remax.pt, era.pt, century21.pt
-  searchEngineId: process.env.GOOGLE_SEARCH_ENGINE_ID || "",
+  searchEngineId: process.env.GOOGLE_SEARCH_ENGINE_ID || "000130217441617313365:ubwok8z0tna",
 };
