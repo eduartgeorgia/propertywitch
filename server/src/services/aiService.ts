@@ -1193,17 +1193,19 @@ Return ONLY valid JSON - no explanations outside the JSON array.`;
 // Configuration for AI analysis behavior
 const AI_ANALYSIS_CONFIG = {
   // Maximum listings to analyze in a single AI call (smaller = faster response)
-  batchSize: 8, // Reduced from 12 - faster AI responses
+  batchSize: 5, // Reduced from 8 to avoid Groq rate limits
   // Maximum total listings for AI analysis (larger sets use smart pre-filtering)
-  maxListingsForAI: 100, // Always try AI first
+  maxListingsForAI: 50, // Reduced to avoid rate limits
   // Timeout for AI analysis in milliseconds
   analysisTimeoutMs: 45000, // 45 seconds - reduced from 90 to fail faster
   // Enable/disable AI listing analysis
   enableAIAnalysis: true,
   // Threshold for detailed vs brief analysis
-  detailedAnalysisThreshold: 20, // More listings get detailed analysis
+  detailedAnalysisThreshold: 15, // Reduced for faster responses
   // ALWAYS use AI when visual features are detected
   forceAIForVisualFeatures: true,
+  // Delay between batches to avoid rate limits (ms)
+  batchDelayMs: 2000, // 2 seconds between batches
 };
 
 /**
@@ -1381,6 +1383,12 @@ export const filterListingsByRelevance = async (
         
         const batchResults = await analyzeListingBatch(userQuery, batch, health.backend!, isDetailed, timeout, hasVisualFeatures);
         allResults = allResults.concat(batchResults);
+        
+        // Add delay between batches to avoid Groq rate limits
+        if (batchIdx < batches.length - 1) {
+          console.log(`[AI Analysis] Waiting ${AI_ANALYSIS_CONFIG.batchDelayMs}ms before next batch to avoid rate limits...`);
+          await new Promise(resolve => setTimeout(resolve, AI_ANALYSIS_CONFIG.batchDelayMs));
+        }
       }
     } else {
       // Single batch analysis

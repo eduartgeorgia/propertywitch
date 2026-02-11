@@ -162,6 +162,13 @@ const App = () => {
   // Ref for auto-expanding textarea
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   
+  // Voice communication state
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
+  
   // Auto-resize textarea based on content
   const autoResizeTextarea = useCallback(() => {
     const textarea = textareaRef.current;
@@ -171,10 +178,134 @@ const App = () => {
     }
   }, []);
   
+  // Initialize speech recognition and synthesis
+  useEffect(() => {
+    // Speech Recognition (Speech-to-Text)
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US'; // Supports English, can add Portuguese
+      
+      recognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0].transcript)
+          .join('');
+        setQuery(transcript);
+        autoResizeTextarea();
+      };
+      
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+      
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+      
+      recognitionRef.current = recognition;
+    }
+    
+    // Speech Synthesis (Text-to-Speech)
+    if (window.speechSynthesis) {
+      synthRef.current = window.speechSynthesis;
+    }
+    
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+      if (synthRef.current) {
+        synthRef.current.cancel();
+      }
+    };
+  }, [autoResizeTextarea]);
+  
+  // Start/stop voice input
+  const toggleVoiceInput = useCallback(() => {
+    if (!recognitionRef.current) {
+      alert('Speech recognition is not supported in your browser. Try Chrome or Edge.');
+      return;
+    }
+    
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      setQuery(''); // Clear existing text
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  }, [isListening]);
+  
+  // Speak text aloud
+  const speakText = useCallback((text: string) => {
+    if (!synthRef.current) {
+      console.warn('Speech synthesis not available');
+      return;
+    }
+    
+    // Cancel any ongoing speech
+    synthRef.current.cancel();
+    
+    // Clean the text (remove emojis and markdown)
+    const cleanText = text
+      .replace(/[🧙‍♀️🏠🔍📊💰🛏️🚿📐📍✨⚡🎯💡⏹️🤖👁️📸🏊‍♂️🌊🌳🚗]/g, '')
+      .replace(/\*\*/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/#{1,6}\s/g, '')
+      .trim();
+    
+    if (!cleanText) return;
+    
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
+    // Try to use a good English voice
+    const voices = synthRef.current.getVoices();
+    const englishVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google')) 
+      || voices.find(v => v.lang.startsWith('en'));
+    if (englishVoice) {
+      utterance.voice = englishVoice;
+    }
+    
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    
+    synthRef.current.speak(utterance);
+  }, []);
+  
+  // Stop speaking
+  const stopSpeaking = useCallback(() => {
+    if (synthRef.current) {
+      synthRef.current.cancel();
+      setIsSpeaking(false);
+    }
+  }, []);
+  
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
+  
+  // Auto-speak new assistant messages when voice is enabled
+  useEffect(() => {
+    if (!voiceEnabled || messages.length === 0) return;
+    
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role === 'assistant' && lastMessage.text && !lastMessage.text.includes('⏹️')) {
+      // Small delay to let the message render first
+      const timer = setTimeout(() => {
+        speakText(lastMessage.text);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [messages, voiceEnabled, speakText]);
 
   // Stop the current request
   const handleStop = useCallback(() => {
@@ -904,7 +1035,16 @@ const App = () => {
           <div className="messages">
             {messages.map((message, index) => (
               <div key={index} className={`message ${message.role}`}>
-                {message.text}
+                <span className="message-text">{message.text}</span>
+                {message.role === 'assistant' && message.text && !message.text.includes('⏹️') && (
+                  <button 
+                    className="speak-btn" 
+                    onClick={() => speakText(message.text)}
+                    title="Read aloud"
+                  >
+                    🔊
+                  </button>
+                )}
               </div>
             ))}
             {isLoading && (
@@ -927,6 +1067,14 @@ const App = () => {
           </div>
 
           <div className="input-row">
+            <button 
+              onClick={toggleVoiceInput} 
+              className={`voice-btn ${isListening ? 'listening' : ''}`}
+              title={isListening ? 'Stop listening' : 'Voice input'}
+              type="button"
+            >
+              {isListening ? '🔴' : '🎤'}
+            </button>
             <textarea
               ref={textareaRef}
               value={query}
@@ -943,7 +1091,7 @@ const App = () => {
                   handleStop();
                 }
               }}
-              placeholder="e.g., Find me land under €30,000..."
+              placeholder={isListening ? "Listening... speak now" : "e.g., Find me land under €30,000..."}
               rows={1}
             />
             {isLoading ? (
@@ -953,6 +1101,22 @@ const App = () => {
             ) : (
               <button onClick={handleSearch} disabled={isLoading}>
                 Send
+              </button>
+            )}
+          </div>
+          
+          <div className="voice-controls">
+            <label className="voice-toggle">
+              <input 
+                type="checkbox" 
+                checked={voiceEnabled} 
+                onChange={(e) => setVoiceEnabled(e.target.checked)} 
+              />
+              🔊 Read responses aloud
+            </label>
+            {isSpeaking && (
+              <button onClick={stopSpeaking} className="stop-speaking-btn" title="Stop speaking">
+                ⏹️ Stop
               </button>
             )}
           </div>

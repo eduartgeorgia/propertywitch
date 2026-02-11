@@ -32,7 +32,8 @@ var import_node_path = __toESM(require("node:path"));
 (0, import_dotenv.config)();
 var projectRoot = process.cwd();
 var toBool = (value, fallback) => {
-  if (value === void 0) return fallback;
+  if (value === void 0)
+    return fallback;
   return value === "1" || value.toLowerCase() === "true";
 };
 var APP_CONFIG = {
@@ -46,8 +47,10 @@ var MATCH_RULES = {
   exactToleranceAbsoluteEur: 50,
   nearMissTolerancePercent: 0.1,
   nearMissToleranceAbsoluteEur: 200,
-  strictRadiusKm: 50,
-  nearMissRadiusKm: 50
+  // Disabled geo filtering - this app searches Portugal from anywhere in the world
+  // Set to 99999 to effectively disable the radius filter
+  strictRadiusKm: 99999,
+  nearMissRadiusKm: 99999
 };
 var FX_RATES = {
   USD_EUR: Number(process.env.FX_RATE_USD_EUR ?? 0.92),
@@ -131,9 +134,12 @@ var buildNearMissPriceRange = (intent, currency, rules) => {
 var normalize = (currency) => currency.trim().toUpperCase();
 var toEur = (amount, currency) => {
   const code = normalize(currency);
-  if (code === "EUR") return amount;
-  if (code === "USD") return amount * FX_RATES.USD_EUR;
-  if (code === "GBP") return amount * FX_RATES.GBP_EUR;
+  if (code === "EUR")
+    return amount;
+  if (code === "USD")
+    return amount * FX_RATES.USD_EUR;
+  if (code === "GBP")
+    return amount * FX_RATES.GBP_EUR;
   throw new Error(`Unsupported currency: ${currency}`);
 };
 var formatCurrency = (amount, currency) => {
@@ -149,9 +155,12 @@ var formatCurrency = (amount, currency) => {
 };
 var guessCurrency = (text) => {
   const lower = text.toLowerCase();
-  if (lower.includes("usd") || lower.includes("$") || lower.includes("us$")) return "USD";
-  if (lower.includes("eur") || lower.includes("\u20AC")) return "EUR";
-  if (lower.includes("gbp") || lower.includes("\xA3")) return "GBP";
+  if (lower.includes("usd") || lower.includes("$") || lower.includes("us$"))
+    return "USD";
+  if (lower.includes("eur") || lower.includes("\u20AC"))
+    return "EUR";
+  if (lower.includes("gbp") || lower.includes("\xA3"))
+    return "GBP";
   return void 0;
 };
 
@@ -211,10 +220,12 @@ var probeSitemap = async (policy) => {
 var robotsAllows = async (policy) => {
   try {
     const response = await fetchWithTimeout(`${policy.baseUrl}/robots.txt`);
-    if (!response.ok) return false;
+    if (!response.ok)
+      return false;
     const body = await response.text();
     const lower = body.toLowerCase();
-    if (lower.includes("disallow: /")) return false;
+    if (lower.includes("disallow: /"))
+      return false;
     return true;
   } catch {
     return false;
@@ -222,7 +233,8 @@ var robotsAllows = async (policy) => {
 };
 var probePublicHtml = async (policy) => {
   const robotsOk = await robotsAllows(policy);
-  if (!robotsOk) return false;
+  if (!robotsOk)
+    return false;
   try {
     const response = await fetchWithTimeout(policy.baseUrl);
     return response.ok;
@@ -325,14 +337,16 @@ function mapPropertyType(context) {
   return OLX_CATEGORIES.IMOVEIS;
 }
 function findRegionId(location) {
-  if (!location) return void 0;
+  if (!location)
+    return void 0;
   const searchTerms = [
     location.label?.toLowerCase(),
     location.city?.toLowerCase(),
     location.region?.toLowerCase()
   ].filter(Boolean);
   for (const term of searchTerms) {
-    if (!term) continue;
+    if (!term)
+      continue;
     for (const [regionName, regionId] of Object.entries(OLX_REGIONS)) {
       if (term.includes(regionName) || regionName.includes(term)) {
         return regionId;
@@ -354,7 +368,8 @@ function extractArea(params) {
     const areaParam = params.find((p) => p.key === key);
     if (areaParam?.value?.key) {
       const parsed = parseFloat(areaParam.value.key.replace(/[^\d.]/g, ""));
-      if (!isNaN(parsed)) return parsed;
+      if (!isNaN(parsed))
+        return parsed;
     }
   }
   return void 0;
@@ -363,7 +378,8 @@ function extractBedrooms(params) {
   const bedsParam = params.find((p) => p.key === "rooms" || p.key === "quartos" || p.key === "t");
   if (bedsParam?.value?.key) {
     const match = bedsParam.value.key.match(/(\d+)/);
-    if (match) return parseInt(match[1], 10);
+    if (match)
+      return parseInt(match[1], 10);
   }
   return void 0;
 }
@@ -371,7 +387,8 @@ function extractBathrooms(params) {
   const bathsParam = params.find((p) => p.key === "bathrooms" || p.key === "casas_banho");
   if (bathsParam?.value?.key) {
     const match = bathsParam.value.key.match(/(\d+)/);
-    if (match) return parseInt(match[1], 10);
+    if (match)
+      return parseInt(match[1], 10);
   }
   return void 0;
 }
@@ -758,23 +775,31 @@ var filterByContext = (listings, context) => {
       const type = context.propertyType.toLowerCase();
       const listingType = listing.propertyType?.toLowerCase() ?? "";
       if (type === "land" || type === "plot" || type === "terrain") {
-        if (listingType !== "land") return false;
+        if (listingType !== "land")
+          return false;
       } else if (type === "house" || type === "villa" || type === "cottage") {
-        if (listingType !== "house") return false;
+        if (listingType !== "house")
+          return false;
       } else if (type === "apartment" || type === "flat") {
-        if (listingType !== "apartment") return false;
+        if (listingType !== "apartment")
+          return false;
       }
     } else {
       if (query.includes("land") || query.includes("plot") || query.includes("terrain")) {
-        if (listing.propertyType !== "land") return false;
+        if (listing.propertyType !== "land")
+          return false;
       } else if (query.includes("house") || query.includes("villa") || query.includes("cottage")) {
-        if (listing.propertyType !== "house") return false;
+        if (listing.propertyType !== "house")
+          return false;
       } else if (query.includes("apartment") || query.includes("flat")) {
-        if (listing.propertyType !== "apartment") return false;
+        if (listing.propertyType !== "apartment")
+          return false;
       }
     }
-    if (context.priceRange.min && listing.priceEur < context.priceRange.min) return false;
-    if (context.priceRange.max && listing.priceEur > context.priceRange.max) return false;
+    if (context.priceRange.min && listing.priceEur < context.priceRange.min)
+      return false;
+    if (context.priceRange.max && listing.priceEur > context.priceRange.max)
+      return false;
     return true;
   });
 };
@@ -835,9 +860,12 @@ var parseUserQuery = (input) => {
     }
   }
   let propertyType;
-  if (/(land|plot|terrain|lote)/.test(lower)) propertyType = "land";
-  if (/(apartment|apartamento|apt)/.test(lower)) propertyType = "apartment";
-  if (/(house|villa|casa|moradia)/.test(lower)) propertyType = "house";
+  if (/(land|plot|terrain|lote)/.test(lower))
+    propertyType = "land";
+  if (/(apartment|apartamento|apt)/.test(lower))
+    propertyType = "apartment";
+  if (/(house|villa|casa|moradia)/.test(lower))
+    propertyType = "house";
   let listingIntent;
   if (/(for rent|to rent|rental|rentals|arrendar|alugar|aluguer|per month|monthly|\/month|\/mo)/.test(lower)) {
     listingIntent = "rent";
@@ -863,7 +891,8 @@ var import_node_fs = __toESM(require("node:fs"));
 var import_node_path2 = __toESM(require("node:path"));
 var DATA_DIR = import_node_path2.default.resolve(process.cwd(), "data", "rag");
 function cosineSimilarity(a, b) {
-  if (a.length !== b.length) return 0;
+  if (a.length !== b.length)
+    return 0;
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
@@ -1766,7 +1795,8 @@ ${doc.content}`);
   console.log(`[RAG] Indexed ${documents.length} knowledge documents`);
 }
 async function indexListings(listings) {
-  if (listings.length === 0) return;
+  if (listings.length === 0)
+    return;
   const store2 = getVectorStore();
   const documents = [];
   const texts = [];
@@ -2277,7 +2307,7 @@ async function callGroq(prompt, system, conversationHistory) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3e4);
+      const timeout = setTimeout(() => controller.abort(), 4e4);
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -2288,7 +2318,7 @@ async function callGroq(prompt, system, conversationHistory) {
           model: GROQ_MODEL,
           messages,
           temperature: 0.7,
-          max_tokens: 1024
+          max_tokens: 4096
         }),
         signal: controller.signal
       });
@@ -2364,7 +2394,7 @@ async function callClaude(prompt, system, conversationHistory) {
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: system || "You are a helpful assistant.",
       messages
     })
@@ -2536,6 +2566,18 @@ Analyze and respond with JSON only:`;
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         console.log(`[Intent AI] Detected: ${parsed.intent} (${parsed.confidence}) - ${parsed.reason}`);
+        const looksLikeSearch = /(?:show|find|search|looking|houses?|apartments?|properties?|land|villa|for\s*sale|to\s*buy|near|pool|sea\s*view)/i.test(message);
+        const aiSaidConversation = parsed.intent === "conversation" || parsed.isPropertySearch === false;
+        if (looksLikeSearch && aiSaidConversation) {
+          console.log(`[Intent AI] OVERRIDE: Message looks like search but AI said "${parsed.intent}" - forcing search intent`);
+          return {
+            intent: "search",
+            isPropertySearch: true,
+            confidence: 0.8,
+            reason: "Override: message contains search keywords",
+            extractedFilters: parsed.extractedFilters
+          };
+        }
         return {
           intent: parsed.intent || "search",
           isPropertySearch: parsed.isPropertySearch ?? true,
@@ -2550,6 +2592,14 @@ Analyze and respond with JSON only:`;
     }
   }
   console.log("[Intent] AI unavailable, using fallback patterns");
+  if (/(?:show\s*me|find\s*me|looking\s*for|search\s*for|get\s*me|i\s*want|i\s*need|houses?|apartments?|properties?|land|villa|villas)/i.test(message) && /(?:for\s*sale|to\s*buy|near|in\s+\w+|portugal|lisbon|porto|algarve|with\s+pool|sea\s*view)/i.test(message)) {
+    return {
+      intent: "search",
+      isPropertySearch: true,
+      confidence: 0.9,
+      reason: "Fallback: explicit property search with location/criteria detected"
+    };
+  }
   if (/\d+\s*(?:m2|m²|sqm|square\s*met)/i.test(message) && hasRecentResults) {
     return {
       intent: "pick_from_results",
@@ -2558,11 +2608,11 @@ Analyze and respond with JSON only:`;
       reason: "Fallback: area filter detected with existing results"
     };
   }
-  if (/(?:find|search|looking for)\s+(?:me\s+)?(?:a\s+)?(?:land|house|apartment|property)/i.test(message)) {
+  if (/(?:find|search|looking for|show me)\s+(?:me\s+)?(?:some\s+)?(?:a\s+)?(?:land|house|houses|apartment|apartments|property|properties|villas?)/i.test(message)) {
     return {
       intent: "search",
       isPropertySearch: true,
-      confidence: 0.8,
+      confidence: 0.85,
       reason: "Fallback: search pattern detected"
     };
   }
@@ -2654,9 +2704,12 @@ function extractJSONFromResponse(text, originalQuery) {
 function fallbackParse(query) {
   const lower = query.toLowerCase();
   let propertyType;
-  if (/(land|plot|terrain|lote|terreno)/.test(lower)) propertyType = "land";
-  else if (/(apartment|apartamento|apt|flat)/.test(lower)) propertyType = "apartment";
-  else if (/(house|villa|casa|moradia|home)/.test(lower)) propertyType = "house";
+  if (/(land|plot|terrain|lote|terreno)/.test(lower))
+    propertyType = "land";
+  else if (/(apartment|apartamento|apt|flat)/.test(lower))
+    propertyType = "apartment";
+  else if (/(house|villa|casa|moradia|home)/.test(lower))
+    propertyType = "house";
   let priceTarget;
   let priceMin;
   let priceMax;
@@ -2670,8 +2723,10 @@ function fallbackParse(query) {
     let num = parseFloat(str.replace(/[,]/g, ""));
     const hasK = suffix?.toLowerCase().includes("k") || suffix?.toLowerCase().includes("thousand");
     const hasMil = suffix?.toLowerCase().includes("mil");
-    if (hasK) num *= 1e3;
-    if (hasMil) num *= 1e6;
+    if (hasK)
+      num *= 1e3;
+    if (hasMil)
+      num *= 1e6;
     return num;
   };
   if (betweenMatch) {
@@ -2692,9 +2747,12 @@ function fallbackParse(query) {
     priceIntent = "around";
   }
   let currency;
-  if (lower.includes("usd") || lower.includes("$") || lower.includes("dollar")) currency = "USD";
-  else if (lower.includes("eur") || lower.includes("\u20AC") || lower.includes("euro")) currency = "EUR";
-  else if (lower.includes("gbp") || lower.includes("\xA3") || lower.includes("pound")) currency = "GBP";
+  if (lower.includes("usd") || lower.includes("$") || lower.includes("dollar"))
+    currency = "USD";
+  else if (lower.includes("eur") || lower.includes("\u20AC") || lower.includes("euro"))
+    currency = "EUR";
+  else if (lower.includes("gbp") || lower.includes("\xA3") || lower.includes("pound"))
+    currency = "GBP";
   let location;
   const locationPatterns = [
     /(?:in|near|around|at|close to)\s+([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+)?)/i
@@ -2707,12 +2765,18 @@ function fallbackParse(query) {
     }
   }
   let responseMessage = "Searching for ";
-  if (propertyType) responseMessage += `${propertyType} `;
-  else responseMessage += "properties ";
-  if (location) responseMessage += `near ${location} `;
-  if (priceTarget) responseMessage += `around ${currency === "USD" ? "$" : "\u20AC"}${priceTarget.toLocaleString()}`;
-  else if (priceMax) responseMessage += `under ${currency === "USD" ? "$" : "\u20AC"}${priceMax.toLocaleString()}`;
-  else if (priceMin) responseMessage += `over ${currency === "USD" ? "$" : "\u20AC"}${priceMin.toLocaleString()}`;
+  if (propertyType)
+    responseMessage += `${propertyType} `;
+  else
+    responseMessage += "properties ";
+  if (location)
+    responseMessage += `near ${location} `;
+  if (priceTarget)
+    responseMessage += `around ${currency === "USD" ? "$" : "\u20AC"}${priceTarget.toLocaleString()}`;
+  else if (priceMax)
+    responseMessage += `under ${currency === "USD" ? "$" : "\u20AC"}${priceMax.toLocaleString()}`;
+  else if (priceMin)
+    responseMessage += `over ${currency === "USD" ? "$" : "\u20AC"}${priceMin.toLocaleString()}`;
   responseMessage += "...";
   return {
     parsedIntent: {
@@ -2732,127 +2796,168 @@ function fallbackParse(query) {
 function cleanResponse(text) {
   return text.replace(/```json[\s\S]*?```/g, "").replace(/```[\s\S]*?```/g, "").replace(/\{[\s\S]*?\}/g, "").trim().slice(0, 500);
 }
-var LISTING_ANALYSIS_PROMPT = `You are an expert real estate analyst helping users find exactly what they're looking for in Portugal.
+var LISTING_ANALYSIS_PROMPT = `You are an expert Portuguese real estate analyst. Your job is to CAREFULLY READ each listing's title and description to understand exactly what is being sold/rented.
 
-CRITICAL: First, understand EXACTLY what the user wants:
-- Parse their query to identify: property type, specific features, location preferences, intended use
-- "land for farming" = agricultural/rural land with good soil, water access
-- "building plot" = urban land with construction permits
-- "land with sea view" = coastal property with ocean visibility
-- "vineyard" = agricultural land suitable for wine production
-- "investment property" = something with rental/resale potential
+**YOUR CRITICAL TASK:**
+1. READ the user's search query to understand EXACTLY what they want
+2. READ each listing's TITLE and DESCRIPTION CAREFULLY - these contain crucial information
+3. MATCH the listing content against what the user is looking for
+4. Score based on how well the ACTUAL listing content matches the user's needs
 
-CONSTRUCTION LAND IN PORTUGAL - CRITICAL RULES:
-When user asks for "land for construction", "building land", "terreno para constru\xE7\xE3o", "lote":
-- ONLY include listings with "urbano" (urban), "constru\xE7\xE3o" (construction), "lote" (plot), "viabilidade", "projeto aprovado"
-- EXCLUDE listings with "r\xFAstico" (rural), "agr\xEDcola" (agricultural) - these CANNOT be built on!
-- "Terreno r\xFAstico" = REJECT (no construction allowed)
-- "Terreno urbano" or "lote de terreno" = ACCEPT (construction allowed)
-- If listing doesn't mention land type, check price: urban plots are \u20AC30-300/sqm, rural is \u20AC1-15/sqm
-- Very cheap land (under \u20AC5/sqm) is usually r\xFAstico and CANNOT be built on
+**UNDERSTANDING PORTUGUESE REAL ESTATE LISTINGS:**
+- "Terreno r\xFAstico" = Rural land (CANNOT build, only agriculture)
+- "Terreno urbano" / "Lote" = Urban plot (CAN build on it)
+- "Quinta" = Farm estate (usually includes house + land)
+- "Moradia" = House/Villa
+- "Apartamento T2" = 2-bedroom apartment
+- "Vista mar" / "Vista para o mar" = Sea view
+- "Piscina" = Swimming pool
+- "Para recuperar" / "A necessitar de obras" = Needs renovation
+- "Bom estado" / "Renovado" = Good condition / Renovated
 
-For EACH listing, analyze:
-1. TITLE: What does the Portuguese title tell us? (terreno=land, r\xFAstico=rural/NO BUILD, urbano=urban/CAN BUILD, quinta=farm estate)
-2. DESCRIPTION: Read the full description carefully. Look for keywords about:
-   - Land type (agr\xEDcola=agricultural/NO BUILD, constru\xE7\xE3o=building/OK, r\xFAstico=rustic/NO BUILD, urbano=urban/OK)
-   - Features (\xE1gua=water, eletricidade=electricity, estrada=road access, vista=view)
-   - Permits (licen\xE7a=license, projeto=project approved, alvar\xE1=permit)
-   - Condition (para recuperar=needs work, pronto=ready)
-3. SIZE & PRICE: Does the area make sense for the user's purpose?
-4. LOCATION: Is it in the right region for what they want?
+**VISUAL FEATURES TO DETECT IN TEXT:**
+When user asks for visual features (sea view, pool, forest, etc.), CHECK IF THE LISTING TEXT MENTIONS THEM:
+- Sea/Ocean view: "vista mar", "vista oceano", "frente mar", "\xE0 beira-mar", "oceanfront"
+- Pool: "piscina", "pool"
+- Garden: "jardim", "garden", "quintal"
+- Forest/Trees: "floresta", "arborizado", "\xE1rvores", "bosque"
+- Mountain view: "vista serra", "vista montanha", "mountain view"
+- River: "rio", "ribeira", "riverside"
+- Terrace/Balcony: "terra\xE7o", "varanda", "balcony"
+- Modern: "moderno", "contempor\xE2neo", "modern"
+- Traditional/Rustic: "tradicional", "r\xFAstico", "t\xEDpico"
 
-SCORING GUIDE:
-- 90-100: Perfect match - exactly what user asked for
-- 70-89: Good match - mostly fits with minor differences
-- 50-69: Partial match - could work but not ideal
-- Below 50: Not relevant - mark as isRelevant: false
+**SCORING RULES:**
+- 85-100: PERFECT match - listing clearly has what user wants (mentioned in text)
+- 70-84: GOOD match - listing mostly matches, minor differences
+- 50-69: PARTIAL match - could work but not ideal
+- 30-49: WEAK match - listing has some relevant aspects but not what user needs
+- 0-29: NO match - listing is completely different from what user wants
 
-BE STRICT: 
-- If user wants "construction land" \u2192 ONLY show "urbano" or "lote" listings, REJECT all "r\xFAstico"
-- If user wants "land" without specifying \u2192 show both but note which are buildable
-- If user wants "farming land" \u2192 show r\xFAstico, REJECT urban plots
+**FOR VISUAL FEATURE SEARCHES:**
+- If user asks for "sea view" and listing text says "vista mar" \u2192 HIGH score
+- If user asks for "sea view" but listing text doesn't mention it \u2192 LOWER score + note "visual feature not confirmed in text, may need photo analysis"
+- If user asks for "pool" and listing mentions "piscina" \u2192 HIGH score
 
-Respond with ONLY a valid JSON array:
-[
-  {
-    "id": "listing-id",
-    "isRelevant": true/false,
-    "relevanceScore": 0-100,
-    "reasoning": "2-3 sentence explanation in English of why this listing matches or doesn't match the user's specific needs. For construction queries, explicitly mention if land is urbano (buildable) or r\xFAstico (not buildable)."
-  }
-]`;
+**IMPORTANT:**
+- ACTUALLY READ the description text provided - don't just guess from the title
+- Look for specific keywords in Portuguese and English
+- Note when visual features are NOT mentioned in text (vision analysis may be needed)
+
+Return ONLY valid JSON - no explanations outside the JSON array.`;
 var AI_ANALYSIS_CONFIG = {
-  // Skip AI analysis if more than this many listings (use local analysis instead)
-  maxListingsForAI: 20,
-  // Timeout for AI analysis in milliseconds (increased for Ollama fallback)
-  analysisTimeoutMs: 6e4,
-  // Enable/disable AI listing analysis (set to false for faster searches)
+  // Maximum listings to analyze in a single AI call (smaller = faster response)
+  batchSize: 5,
+  // Reduced from 8 to avoid Groq rate limits
+  // Maximum total listings for AI analysis (larger sets use smart pre-filtering)
+  maxListingsForAI: 50,
+  // Reduced to avoid rate limits
+  // Timeout for AI analysis in milliseconds
+  analysisTimeoutMs: 45e3,
+  // 45 seconds - reduced from 90 to fail faster
+  // Enable/disable AI listing analysis
   enableAIAnalysis: true,
   // Threshold for detailed vs brief analysis
-  detailedAnalysisThreshold: 10
-  // If <= this many listings, do detailed analysis
+  detailedAnalysisThreshold: 15,
+  // Reduced for faster responses
+  // ALWAYS use AI when visual features are detected
+  forceAIForVisualFeatures: true,
+  // Delay between batches to avoid rate limits (ms)
+  batchDelayMs: 2e3
+  // 2 seconds between batches
 };
 function buildAnalysisPrompt(userQuery, listings, isDetailed) {
   const listingSummaries = listings.map((l, idx) => {
-    const photoInfo = l.photos.length > 0 ? `Photos: ${l.photos.length} image(s)` : "No photos";
-    const cleanDesc = l.description ? l.description.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() : "No description available";
-    const descLength = isDetailed ? 800 : 400;
-    const truncatedDesc = cleanDesc.slice(0, descLength);
+    const photoInfo = l.photos.length > 0 ? `Has ${l.photos.length} photo(s) - can be analyzed for visual features if needed` : "No photos available";
+    const cleanDesc = l.description ? l.description.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() : "No description provided";
+    const descLength = isDetailed ? 800 : 500;
+    const truncatedDesc = cleanDesc.length > descLength ? cleanDesc.slice(0, descLength) + "..." : cleanDesc;
     return `
-LISTING ${idx + 1} (ID: ${l.id}):
-Title: "${l.title}"
-Price: \u20AC${l.priceEur.toLocaleString()}
-Area: ${l.areaSqm ? `${l.areaSqm.toLocaleString()} m\xB2` : "Not specified"}
-Property Type: ${l.propertyType || "Not specified"}
-Location: ${l.city || l.locationLabel || "Portugal"}
-Description: "${truncatedDesc}"
-${photoInfo}`;
-  }).join("\n" + "=".repeat(50));
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+LISTING ${idx + 1} (ID: ${l.id})
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u{1F4CD} Location: ${l.city || l.locationLabel || "Portugal"}
+\u{1F3F7}\uFE0F Title: "${l.title}"
+\u{1F4B0} Price: \u20AC${l.priceEur.toLocaleString()}
+\u{1F4D0} Area: ${l.areaSqm ? `${l.areaSqm.toLocaleString()} m\xB2` : "Not specified"}
+\u{1F3E0} Type: ${l.propertyType || "Not specified"}
+
+\u{1F4DD} FULL DESCRIPTION (READ THIS CAREFULLY):
+"${truncatedDesc}"
+
+\u{1F4F7} ${photoInfo}`;
+  }).join("\n");
+  const visualFeaturePatterns = [
+    { pattern: /sea\s*view|vista\s*mar|ocean|oceano|frente\s*mar|beach|praia/i, feature: "sea/ocean view" },
+    { pattern: /pool|piscina|swimming/i, feature: "swimming pool" },
+    { pattern: /garden|jardim|quintal/i, feature: "garden" },
+    { pattern: /forest|floresta|trees|árvores|bosque|arborizado/i, feature: "forest/trees" },
+    { pattern: /mountain|montanha|serra|monte/i, feature: "mountain view" },
+    { pattern: /river|rio|ribeira/i, feature: "river/riverside" },
+    { pattern: /terrace|terraço|varanda|balcony/i, feature: "terrace/balcony" },
+    { pattern: /rural|countryside|campo|isolated|isolado/i, feature: "rural setting" },
+    { pattern: /modern|moderno|contemporary|contemporâneo/i, feature: "modern style" }
+  ];
+  const requestedFeatures = visualFeaturePatterns.filter((vf) => vf.pattern.test(userQuery)).map((vf) => vf.feature);
+  const visualFeatureNote = requestedFeatures.length > 0 ? `
+\u26A0\uFE0F USER IS SEARCHING FOR VISUAL FEATURES: ${requestedFeatures.join(", ")}
+CHECK EACH DESCRIPTION for mentions of these features. If a feature is NOT mentioned in the text, note it in your reasoning as "feature not confirmed in text - may need photo analysis".` : "";
   if (isDetailed) {
     return `USER SEARCH QUERY: "${userQuery}"
+${visualFeatureNote}
 
-You are providing DETAILED property analysis. Since there are only ${listings.length} results, give thorough insights on each.
+CRITICAL INSTRUCTIONS:
+1. READ each listing's TITLE and DESCRIPTION CAREFULLY
+2. Identify what is ACTUALLY being offered based on the text
+3. Match the listing content against what the user wants
+4. Be SPECIFIC in your reasoning - cite actual words from the description
 
-For EACH listing, provide a comprehensive analysis:
-
-1. MATCH ASSESSMENT: How well does this match what the user is looking for?
-2. PROPERTY DETAILS: Key features, size, condition based on description
-3. LOCATION INSIGHTS: What's notable about the location/area?
-4. VALUE ANALYSIS: Is the price reasonable for what's offered?
-5. PROS & CONS: List specific advantages and potential concerns
-6. RECOMMENDATION: Should the user consider this? Why/why not?
+For EACH listing, analyze:
+\u2713 Does the TITLE indicate what user wants?
+\u2713 Does the DESCRIPTION mention the features user is looking for?
+\u2713 Is the location appropriate?
+\u2713 Is the price reasonable?
+\u2713 What specific keywords in the description support/reject this match?
 
 LISTINGS TO ANALYZE:
 ${listingSummaries}
 
-Return a JSON array. Each entry must have a "reasoning" field with 4-6 sentences covering the points above:
+Return a JSON array. Each entry MUST include specific details from the listing text:
 [
   {
     "id": "listing-id",
     "isRelevant": true/false,
     "relevanceScore": 0-100,
-    "reasoning": "Detailed analysis: [Match assessment]. [Property details]. [Location insights]. [Value analysis]. [Key pros/cons]. [Recommendation]."
+    "reasoning": "4-6 sentences citing SPECIFIC details from the listing. Example: 'The description mentions "vista panor\xE2mica para o mar" confirming sea view. Listed as terreno urbano (buildable). Priced at \u20ACX/m\xB2 which is reasonable for the coastal area. However, no pool is mentioned in the text.'"
   }
 ]`;
   } else {
     return `USER SEARCH QUERY: "${userQuery}"
+${visualFeatureNote}
 
-IMPORTANT: Understand what the user REALLY wants. Parse their query for:
-- Property type (land, house, apartment, farm, etc.)
-- Specific features they mentioned
-- Their apparent purpose (farming, building, investment, living, etc.)
+YOUR TASK: Analyze these ${listings.length} Portuguese real estate listings.
 
-Now analyze these ${listings.length} listings from Portugal:
+CRITICAL: You MUST actually READ each listing's description to determine relevance.
+- Don't just look at titles - read the full description text
+- Look for Portuguese keywords that indicate features
+- Note when requested features are or aren't mentioned in the text
+- For LAND: Always specify if it's "urbano" (buildable) or "r\xFAstico" (not buildable)
+- For VISUAL FEATURES: Note if sea view, pool, garden, etc. is mentioned or NOT mentioned
+
 ${listingSummaries}
 
-For EACH listing, determine if it genuinely matches what the user is looking for.
-Return a JSON array with brief analysis (2-3 sentences each):
+Return a JSON array. Each reasoning MUST be 3-4 sentences with:
+1. Property type and key characteristics from description
+2. Whether it matches the user's search criteria
+3. Any notable features or concerns (buildability, visual features, condition)
+4. If visual features requested: explicitly state if mentioned in text or "not confirmed in text"
+
 [
   {
     "id": "listing-id",
     "isRelevant": true/false,
     "relevanceScore": 0-100,
-    "reasoning": "2-3 sentence explanation of why this matches or doesn't match the user's needs."
+    "reasoning": "3-4 sentences. Example: 'This is a terreno urbano (urban land) suitable for construction, with 500m\xB2 in Cascais. Description mentions "vista mar" (sea view) and good road access. Priced at \u20AC150/m\xB2 which is reasonable for this coastal area. Water and electricity connections available.'"
   }
 ]`;
   }
@@ -2861,24 +2966,52 @@ var filterListingsByRelevance = async (userQuery, listings, options) => {
   const skipAI = options?.skipAI ?? !AI_ANALYSIS_CONFIG.enableAIAnalysis;
   const timeout = options?.timeout ?? AI_ANALYSIS_CONFIG.analysisTimeoutMs;
   const forceDetailed = options?.forceDetailed ?? false;
-  if (skipAI || listings.length > AI_ANALYSIS_CONFIG.maxListingsForAI) {
+  const hasVisualFeatures = options?.hasVisualFeatures ?? false;
+  const shouldForceAI = hasVisualFeatures && AI_ANALYSIS_CONFIG.forceAIForVisualFeatures;
+  if (skipAI && !shouldForceAI) {
     console.log(`[AI Analysis] Using fast local analysis (skipAI=${skipAI}, listings=${listings.length})`);
     return analyzeListingsLocally(userQuery, listings, forceDetailed);
   }
   const health = await checkAIHealth();
   if (!health.available || listings.length === 0) {
-    return listings.map((l) => ({
-      id: l.id,
-      isRelevant: true,
-      relevanceScore: 50,
-      reasoning: "AI unavailable - showing all results"
-    }));
+    console.log(`[AI Analysis] AI not available, using enhanced local analysis`);
+    return analyzeListingsLocally(userQuery, listings, forceDetailed);
   }
   const isDetailed = forceDetailed || listings.length <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
-  console.log(`[AI Analysis] Mode: ${isDetailed ? "DETAILED" : "BRIEF"} (${listings.length} listings, threshold: ${AI_ANALYSIS_CONFIG.detailedAnalysisThreshold}, forced: ${forceDetailed})`);
+  const needsBatching = listings.length > AI_ANALYSIS_CONFIG.batchSize;
+  console.log(`[AI Analysis] Mode: ${isDetailed ? "DETAILED" : "BRIEF"} (${listings.length} listings, batching: ${needsBatching}, visual features: ${hasVisualFeatures})`);
+  try {
+    let allResults = [];
+    if (needsBatching) {
+      const batches = [];
+      for (let i = 0; i < listings.length; i += AI_ANALYSIS_CONFIG.batchSize) {
+        batches.push(listings.slice(i, i + AI_ANALYSIS_CONFIG.batchSize));
+      }
+      console.log(`[AI Analysis] Processing ${batches.length} batches of ~${AI_ANALYSIS_CONFIG.batchSize} listings each...`);
+      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        const batch = batches[batchIdx];
+        console.log(`[AI Analysis] Batch ${batchIdx + 1}/${batches.length}: Analyzing ${batch.length} listings with ${health.backend} backend...`);
+        const batchResults = await analyzeListingBatch(userQuery, batch, health.backend, isDetailed, timeout, hasVisualFeatures);
+        allResults = allResults.concat(batchResults);
+        if (batchIdx < batches.length - 1) {
+          console.log(`[AI Analysis] Waiting ${AI_ANALYSIS_CONFIG.batchDelayMs}ms before next batch to avoid rate limits...`);
+          await new Promise((resolve) => setTimeout(resolve, AI_ANALYSIS_CONFIG.batchDelayMs));
+        }
+      }
+    } else {
+      allResults = await analyzeListingBatch(userQuery, listings, health.backend, isDetailed, timeout, hasVisualFeatures);
+    }
+    console.log(`[AI Analysis] Completed: ${allResults.length} listings analyzed`);
+    return allResults;
+  } catch (error) {
+    console.error("[AI Analysis] Failed:", error);
+    console.log(`[AI Analysis] Using enhanced local fallback (detailed: ${isDetailed})`);
+    return analyzeListingsLocally(userQuery, listings, isDetailed);
+  }
+};
+async function analyzeListingBatch(userQuery, listings, backend, isDetailed, timeout, hasVisualFeatures) {
   const prompt = buildAnalysisPrompt(userQuery, listings, isDetailed);
   try {
-    console.log(`[AI Analysis] Analyzing ${listings.length} listings with ${health.backend} backend (timeout: ${timeout}ms)...`);
     const aiCallPromise = callAIWithFallback(prompt, LISTING_ANALYSIS_PROMPT);
     const timeoutPromise = new Promise(
       (_, reject) => setTimeout(() => reject(new Error("AI analysis timeout")), timeout)
@@ -2896,7 +3029,8 @@ var filterListingsByRelevance = async (userQuery, listings, options) => {
         let depth = 0;
         let endIdx = startIdx;
         for (let i = startIdx; i < response.length; i++) {
-          if (response[i] === "[") depth++;
+          if (response[i] === "[")
+            depth++;
           else if (response[i] === "]") {
             depth--;
             if (depth === 0) {
@@ -2924,13 +3058,27 @@ var filterListingsByRelevance = async (userQuery, listings, options) => {
         if (validResults.length > 0) {
           const resultMap = new Map(validResults.map((r) => [r.id, r]));
           return listings.map((l) => {
+            if (!l || !l.id) {
+              return {
+                id: l?.id || "unknown",
+                isRelevant: true,
+                relevanceScore: 50,
+                reasoning: "Listing data incomplete"
+              };
+            }
             const aiResult = resultMap.get(l.id);
             if (aiResult) {
               return aiResult;
             }
-            const altResult = validResults.find(
-              (r) => r.id.includes(l.id) || l.id.includes(r.id) || r.reasoning?.toLowerCase().includes(l.title?.toLowerCase().slice(0, 20))
-            );
+            const altResult = validResults.find((r) => {
+              if (!r || !r.id)
+                return false;
+              const rId = String(r.id || "");
+              const lId = String(l.id || "");
+              const lTitle = String(l.title || "").toLowerCase().slice(0, 20);
+              const rReasoning = String(r.reasoning || "").toLowerCase();
+              return rId.includes(lId) || lId.includes(rId) || rReasoning.includes(lTitle);
+            });
             if (altResult) {
               return { ...altResult, id: l.id };
             }
@@ -2951,11 +3099,10 @@ var filterListingsByRelevance = async (userQuery, listings, options) => {
       console.log("[AI Analysis] Response preview:", response.slice(0, 500));
     }
   } catch (error) {
-    console.error("[AI Analysis] Failed:", error);
+    console.error("[AI Analysis] Batch failed:", error);
   }
-  console.log(`[AI Analysis] Using smart local fallback (detailed: ${isDetailed})`);
   return analyzeListingsLocally(userQuery, listings, isDetailed);
-};
+}
 function analyzeListingsLocally(userQuery, listings, isDetailed = false) {
   const query = userQuery.toLowerCase();
   const wantsApartment = /apartment|apartamento|apt|flat/.test(query) && !/house|moradia|villa/.test(query);
@@ -3132,43 +3279,44 @@ function analyzeListingsLocally(userQuery, listings, isDetailed = false) {
     }
     score = Math.max(10, Math.min(95, score));
     let reasoning;
-    if (isDetailed) {
-      const detailedParts = [];
-      detailedParts.push(`This is a ${propertyType.toLowerCase()} located in ${l.city || "Portugal"}.`);
-      if (l.priceEur > 0) {
-        const pricePerSqm = l.areaSqm && l.areaSqm > 0 ? Math.round(l.priceEur / l.areaSqm) : 0;
-        if (pricePerSqm > 0) {
-          detailedParts.push(`Priced at \u20AC${l.priceEur.toLocaleString()} (\u20AC${pricePerSqm}/m\xB2), which is ${pricePerSqm < 1500 ? "quite affordable" : pricePerSqm < 3e3 ? "reasonably priced" : pricePerSqm < 5e3 ? "mid-range" : "premium pricing"} for the area.`);
-        } else {
-          detailedParts.push(`Listed at \u20AC${l.priceEur.toLocaleString()}.`);
-        }
-      }
-      if (l.areaSqm && l.areaSqm > 0) {
-        const sizeCategory = l.areaSqm < 50 ? "compact" : l.areaSqm < 100 ? "medium-sized" : l.areaSqm < 200 ? "spacious" : "large";
-        detailedParts.push(`With ${l.areaSqm}m\xB2 of space, it offers a ${sizeCategory} layout.`);
-      }
-      if (score >= 70) {
-        detailedParts.push(`This property strongly matches your search criteria and is worth considering.`);
-      } else if (score >= 50) {
-        detailedParts.push(`This property partially matches your requirements - review the details to see if it fits your needs.`);
+    const detailedParts = [];
+    detailedParts.push(`This is a ${propertyType.toLowerCase()} located in ${l.city || "Portugal"}.`);
+    if (isLand) {
+      if (isUrbanLand && !isRuralLand) {
+        detailedParts.push(`This is classified as URBAN land (terreno urbano) - construction is permitted.`);
+      } else if (isRuralLand) {
+        detailedParts.push(`\u26A0\uFE0F This is RURAL/R\xDASTICO land - construction is NOT permitted, suitable only for agriculture.`);
       } else {
-        detailedParts.push(`This may not be an ideal match for your specific search criteria.`);
-      }
-      if (reasons.length > 0) {
-        const reasonText = reasons.filter((r) => !r.includes("\u20AC") && !r.includes("m\xB2")).slice(0, 2).join(" ");
-        if (reasonText) {
-          detailedParts.push(reasonText);
-        }
-      }
-      reasoning = detailedParts.slice(0, 5).join(" ");
-    } else {
-      if (reasons.length > 0) {
-        reasoning = reasons.slice(0, 2).join(". ");
-        if (!reasoning.endsWith(".")) reasoning += ".";
-      } else {
-        reasoning = `${propertyType} in ${l.city || "Portugal"} at \u20AC${l.priceEur.toLocaleString()}.`;
+        detailedParts.push(`Land classification unclear from listing - verify if urbano (buildable) or r\xFAstico (not buildable).`);
       }
     }
+    if (l.priceEur > 0) {
+      const pricePerSqm = l.areaSqm && l.areaSqm > 0 ? Math.round(l.priceEur / l.areaSqm) : 0;
+      if (pricePerSqm > 0) {
+        const priceAssessment = isLand ? pricePerSqm < 20 ? "very affordable (likely rural)" : pricePerSqm < 50 ? "affordable" : pricePerSqm < 150 ? "moderate" : "premium (likely urban/coastal)" : pricePerSqm < 1500 ? "quite affordable" : pricePerSqm < 3e3 ? "reasonably priced" : pricePerSqm < 5e3 ? "mid-range" : "premium pricing";
+        detailedParts.push(`Priced at \u20AC${l.priceEur.toLocaleString()} (\u20AC${pricePerSqm}/m\xB2) - ${priceAssessment} for the area.`);
+      } else {
+        detailedParts.push(`Listed at \u20AC${l.priceEur.toLocaleString()}.`);
+      }
+    }
+    if (l.areaSqm && l.areaSqm > 0) {
+      const sizeCategory = isLand ? l.areaSqm < 500 ? "small plot" : l.areaSqm < 2e3 ? "medium plot" : l.areaSqm < 1e4 ? "large plot" : "very large plot" : l.areaSqm < 50 ? "compact" : l.areaSqm < 100 ? "medium-sized" : l.areaSqm < 200 ? "spacious" : "large";
+      detailedParts.push(`Size: ${l.areaSqm.toLocaleString()}m\xB2 (${sizeCategory}).`);
+    }
+    if (listingVisualFeatures.length > 0) {
+      const labels = listingVisualFeatures.map((f) => visualFeaturePatterns.find((p) => p[1] === f)?.[2] || f);
+      detailedParts.push(`Features mentioned: ${labels.join(", ")}.`);
+    } else if (requestedVisualFeatures.length > 0) {
+      detailedParts.push(`Note: Requested visual features (${requestedVisualFeatures.join(", ")}) not confirmed in listing text - photo analysis may help.`);
+    }
+    if (score >= 75) {
+      detailedParts.push(`Strong match for your search criteria.`);
+    } else if (score >= 50) {
+      detailedParts.push(`Partial match - review details to confirm suitability.`);
+    } else {
+      detailedParts.push(`May not fully match your requirements.`);
+    }
+    reasoning = detailedParts.slice(0, 5).join(" ");
     return {
       id: l.id,
       isRelevant,
@@ -3178,8 +3326,20 @@ function analyzeListingsLocally(userQuery, listings, isDetailed = false) {
   });
 }
 var getRelevantListings = async (userQuery, listings) => {
-  if (listings.length === 0) return [];
-  const relevanceResults = await filterListingsByRelevance(userQuery, listings);
+  if (listings.length === 0)
+    return [];
+  const visualFeaturePatterns = [
+    /sea\s*view|vista\s*mar|ocean|oceano|frente\s*mar|beach|praia/i,
+    /pool|piscina|swimming/i,
+    /garden|jardim|quintal/i,
+    /forest|floresta|trees|árvores|bosque|arborizado/i,
+    /mountain|montanha|serra|monte/i,
+    /river|rio|ribeira/i,
+    /terrace|terraço|varanda|balcony/i,
+    /rural|countryside|campo|isolated|isolado/i
+  ];
+  const hasVisualFeatures = visualFeaturePatterns.some((p) => p.test(userQuery));
+  const relevanceResults = await filterListingsByRelevance(userQuery, listings, { hasVisualFeatures });
   const relevanceMap = new Map(relevanceResults.map((r) => [r.id, r]));
   let results = listings.map((listing) => ({
     listing,
@@ -3194,7 +3354,7 @@ var getRelevantListings = async (userQuery, listings) => {
   if (shouldReAnalyze && results.length > 0) {
     console.log(`[AI Analysis] Re-analyzing ${results.length} final results with detailed mode (started with ${listings.length})`);
     const finalListings = results.map((r) => r.listing);
-    const detailedResults = await filterListingsByRelevance(userQuery, finalListings, { forceDetailed: true });
+    const detailedResults = await filterListingsByRelevance(userQuery, finalListings, { forceDetailed: true, hasVisualFeatures });
     const detailedMap = new Map(detailedResults.map((r) => [r.id, r]));
     results = results.map((item) => ({
       ...item,
@@ -3214,7 +3374,8 @@ var pickBestListings = async (userQuery, listings, count = 2) => {
   if (countMatch) {
     const numWords = { one: 1, two: 2, three: 3, four: 4, five: 5, "a few": 3, some: 3 };
     const parsed = numWords[countMatch[1].toLowerCase()] || parseInt(countMatch[1]);
-    if (!isNaN(parsed)) count = parsed;
+    if (!isNaN(parsed))
+      count = parsed;
   }
   count = Math.min(count, listings.length);
   const isDetailed = count <= AI_ANALYSIS_CONFIG.detailedAnalysisThreshold;
@@ -3708,10 +3869,14 @@ var toCard = (listing, distanceKm2, relevanceScore, relevanceReasoning, visionAn
     const isApartment = /apartamento|apartment|flat|\bt[0-4]\b/.test(combined) && !isRoom;
     const isHouse = /moradia|house|villa|vivenda|quinta/.test(combined) && !isApartment;
     const isLand = /terreno|land|lote|plot|rústico/.test(combined);
-    if (isRoom) propertyType = "Room";
-    else if (isApartment) propertyType = "Apartment";
-    else if (isHouse) propertyType = "House";
-    else if (isLand) propertyType = "Land";
+    if (isRoom)
+      propertyType = "Room";
+    else if (isApartment)
+      propertyType = "Apartment";
+    else if (isHouse)
+      propertyType = "House";
+    else if (isLand)
+      propertyType = "Land";
   }
   return {
     id: listing.id,
@@ -3804,148 +3969,123 @@ var runSearch = async (request) => {
     appliedRange = nearMissRange;
   }
   const requestedVisualFeatures = extractImageFeatureQuery(request.query);
-  if (requestedVisualFeatures.length > 0) {
-    console.log(`[Search] Detected visual features in query: ${requestedVisualFeatures.join(", ")}`);
+  const hasVisualFeatureRequest = requestedVisualFeatures.length > 0;
+  if (hasVisualFeatureRequest) {
+    console.log(`[Search] \u{1F50D} Visual features detected in query: ${requestedVisualFeatures.join(", ")}`);
+    console.log(`[Search] AI will analyze listing text for these features, then vision AI for photos if needed`);
   }
   const listingsForAnalysis = filtered.map(({ listing, distance }) => {
-    const imageFeatures = listing.imageFeatures;
-    let visualFeatureScore = 0;
-    let visualMatchedFeatures = [];
-    if (requestedVisualFeatures.length > 0) {
-      if (imageFeatures && imageFeatures.length > 0) {
-        const match = matchesFeatureQuery(imageFeatures, requestedVisualFeatures);
-        visualFeatureScore = match.score * 30;
-        visualMatchedFeatures = match.matchedFeatures;
-      }
-      const textContent = `${listing.title} ${listing.description || ""}`.toLowerCase();
-      const textMatches = [];
-      const featureTextPatterns = {
-        sea: /\b(mar|sea|ocean|vista\s*mar|sea\s*view|ocean\s*view|frente\s*mar|praia|beach)\b/i,
-        ocean: /\b(ocean|oceano|ocean\s*view|vista\s*oceano)\b/i,
-        pool: /\b(piscina|pool|swimming)\b/i,
-        forest: /\b(floresta|forest|arborizado|trees|árvores|bosque)\b/i,
-        mountain: /\b(montanha|mountain|serra|vista\s*montanha|mountain\s*view)\b/i,
-        garden: /\b(jardim|garden|quintal)\b/i,
-        river: /\b(rio|river|ribeira|riverside)\b/i,
-        ruins: /\b(ruína|ruins?|abandonad[oa]|para\s*reconstruir|para\s*recuperar)\b/i,
-        modern: /\b(modern[oa]?|contemporary|contemporâne[oa])\b/i,
-        traditional: /\b(tradicional|traditional|típic[oa]|rústic[oa]|rustic)\b/i,
-        vineyard: /\b(vinha|vineyard|vinícola|vinho)\b/i,
-        terrace: /\b(terraço|terrace|varanda)\b/i,
-        balcony: /\b(varanda|balcon[y]?|sacada)\b/i,
-        parking: /\b(estacionamento|parking|garagem|garage)\b/i,
-        rural: /\b(rural|campo|countryside|isolad[oa])\b/i
-      };
-      for (const feature of requestedVisualFeatures) {
-        const pattern = featureTextPatterns[feature];
-        if (pattern && pattern.test(textContent)) {
-          textMatches.push(feature);
-        }
-      }
-      if (textMatches.length > 0) {
-        const textMatchScore = textMatches.length / requestedVisualFeatures.length * 20;
-        visualFeatureScore = Math.max(visualFeatureScore, visualFeatureScore + textMatchScore);
-        visualMatchedFeatures = [.../* @__PURE__ */ new Set([...visualMatchedFeatures, ...textMatches])];
-      }
-    }
     return {
       id: listing.id,
       title: listing.title,
       description: listing.description,
+      // FULL description - AI needs to read this
       photos: listing.photos,
       priceEur: listing.priceEur,
       areaSqm: listing.areaSqm,
       propertyType: listing.propertyType,
       city: listing.city,
       locationLabel: listing.city ?? listing.address ?? "Portugal",
-      // Visual feature data
-      visualFeatureScore,
-      visualMatchedFeatures,
-      requestedVisualFeatures,
       // Keep original data for later
       _original: listing,
       _distance: distance
     };
   });
+  console.log(`[Search] \u{1F916} Starting AI analysis of ${listingsForAnalysis.length} listings...`);
   const relevantListings = await getRelevantListings(request.query, listingsForAnalysis);
+  console.log(`[Search] \u{1F916} AI analyzed ${relevantListings.length} relevant listings from ${listingsForAnalysis.length} total`);
   let visionAnalyzedCount = 0;
-  if (requestedVisualFeatures.length > 0) {
+  const visionResults = /* @__PURE__ */ new Map();
+  if (hasVisualFeatureRequest) {
     const visionStatus = getVisionServiceStatus();
-    const needsVisionAnalysis = relevantListings.filter(({ listing }) => {
-      const visualScore = listing.visualFeatureScore || 0;
+    const needsVisionAnalysis = relevantListings.filter(({ listing, relevance }) => {
+      const reasoning = relevance.reasoning?.toLowerCase() || "";
       const hasPhoto = listing.photos && listing.photos.length > 0;
-      return hasPhoto && visualScore === 0;
+      const textMissingFeature = reasoning.includes("not confirmed") || reasoning.includes("not mentioned") || reasoning.includes("no mention") || reasoning.includes("photo analysis") || reasoning.includes("check photo") || reasoning.includes("visual feature not") || reasoning.includes("n\xE3o menciona") || reasoning.includes("sem men\xE7\xE3o") || // Analyze photos for any listing with moderate score (visual verification helps)
+      relevance.relevanceScore < 85 && relevance.relevanceScore > 25;
+      return hasPhoto && textMissingFeature;
     });
     if (needsVisionAnalysis.length > 0 && visionStatus.available) {
-      console.log(`[Search] Vision AI: ${needsVisionAnalysis.length} listings need photo analysis (no text matches)`);
-      const maxVisionAnalysis = 5;
+      console.log(`[Search] \u{1F441}\uFE0F Vision AI: ${needsVisionAnalysis.length} listings need photo analysis (AI found visual features not confirmed in text)`);
+      const maxVisionAnalysis = 15;
       const toAnalyze = needsVisionAnalysis.slice(0, maxVisionAnalysis);
-      for (const { listing } of toAnalyze) {
+      for (const { listing, relevance } of toAnalyze) {
         try {
           const photoUrl = listing.photos[0];
-          console.log(`[Search] Vision AI: Analyzing photo for "${listing.title.substring(0, 40)}..."`);
+          console.log(`[Search] \u{1F441}\uFE0F Vision AI: Analyzing photo for "${listing.title.substring(0, 40)}..."`);
           const analysis = await analyzeImage(photoUrl);
           if (analysis && analysis.features.length > 0) {
             const match = matchesFeatureQuery(analysis.features, requestedVisualFeatures);
+            visionResults.set(listing.id, {
+              features: match.matchedFeatures,
+              matched: match.matches
+            });
             if (match.matches) {
-              listing.visualFeatureScore = match.score * 30;
-              listing.visualMatchedFeatures = match.matchedFeatures;
               listing.visionAnalyzed = true;
+              listing.visualMatchedFeatures = match.matchedFeatures;
+              listing.visionScore = match.score * 25;
               visionAnalyzedCount++;
-              console.log(`[Search] Vision AI: Found ${match.matchedFeatures.join(", ")} in photo!`);
+              console.log(`[Search] \u{1F441}\uFE0F Vision AI: \u2713 Found ${match.matchedFeatures.join(", ")} in photo!`);
+            } else {
+              listing.visionAnalyzed = true;
+              listing.visualMatchedFeatures = [];
+              console.log(`[Search] \u{1F441}\uFE0F Vision AI: \u2717 Requested features not visible in photo`);
             }
           }
         } catch (error) {
-          console.error(`[Search] Vision AI error:`, error);
+          console.error(`[Search] \u{1F441}\uFE0F Vision AI error:`, error);
         }
       }
       if (visionAnalyzedCount > 0) {
-        console.log(`[Search] Vision AI: ${visionAnalyzedCount} listings matched via photo analysis`);
+        console.log(`[Search] \u{1F441}\uFE0F Vision AI: ${visionAnalyzedCount}/${toAnalyze.length} listings matched requested visual features via photo analysis`);
       }
     } else if (needsVisionAnalysis.length > 0 && !visionStatus.available) {
-      console.log(`[Search] Vision AI not available, skipping photo analysis`);
+      console.log(`[Search] Vision AI not available, skipping photo analysis for ${needsVisionAnalysis.length} candidates`);
     }
   }
   const sortedListings = relevantListings.map(({ listing, relevance }) => {
-    const visualScore = listing.visualFeatureScore || 0;
+    const visionScore = listing.visionScore || 0;
     const visualMatches = listing.visualMatchedFeatures || [];
-    const combinedScore = relevance.relevanceScore + visualScore;
-    let enhancedReasoning = relevance.reasoning;
-    if (visualMatches.length > 0) {
-      enhancedReasoning += ` [Visual matches: ${visualMatches.join(", ")}]`;
+    const wasVisionAnalyzed = listing.visionAnalyzed || false;
+    const combinedScore = Math.min(100, relevance.relevanceScore + visionScore);
+    let enhancedReasoning = relevance.reasoning || "";
+    if (wasVisionAnalyzed && visualMatches.length > 0) {
+      enhancedReasoning += ` [\u{1F4F7} Photo confirmed: ${visualMatches.join(", ")}]`;
+    } else if (wasVisionAnalyzed && visualMatches.length === 0 && hasVisualFeatureRequest) {
+      enhancedReasoning += ` [\u{1F4F7} Photo analyzed: requested features not visible]`;
     }
     return {
       listing,
       relevance: {
         ...relevance,
-        relevanceScore: Math.min(100, combinedScore),
-        // Cap at 100
+        relevanceScore: combinedScore,
         reasoning: enhancedReasoning
       },
-      visualScore
+      visionScore,
+      visualMatches,
+      wasVisionAnalyzed
     };
   }).sort((a, b) => b.relevance.relevanceScore - a.relevance.relevanceScore);
   let finalListings = sortedListings;
-  if (requestedVisualFeatures.length > 0) {
-    const withVisualMatch = sortedListings.filter((l) => l.visualScore > 0);
-    const withoutVisualMatch = sortedListings.filter((l) => l.visualScore === 0);
-    finalListings = [...withVisualMatch, ...withoutVisualMatch];
-    if (withVisualMatch.length > 0) {
-      console.log(`[Search] ${withVisualMatch.length} listings match visual features (${requestedVisualFeatures.join(", ")})`);
-    } else {
-      console.log(`[Search] No listings found with exact visual feature matches, showing best available`);
-    }
+  if (hasVisualFeatureRequest) {
+    const visionConfirmed = sortedListings.filter((l) => l.wasVisionAnalyzed && l.visualMatches.length > 0);
+    const textConfirmed = sortedListings.filter(
+      (l) => !l.wasVisionAnalyzed && l.relevance.relevanceScore >= 75
+    );
+    const others = sortedListings.filter(
+      (l) => !(l.wasVisionAnalyzed && l.visualMatches.length > 0) && !(l.relevance.relevanceScore >= 75 && !l.wasVisionAnalyzed)
+    );
+    finalListings = [...visionConfirmed, ...textConfirmed, ...others];
+    console.log(`[Search] \u{1F4CA} Results: ${visionConfirmed.length} vision-confirmed, ${textConfirmed.length} text-confirmed, ${others.length} other`);
   }
-  const responseListings = finalListings.map(({ listing, relevance }) => {
-    const visionAnalyzed = listing.visionAnalyzed || false;
-    const visualMatchedFeatures = listing.visualMatchedFeatures || [];
+  const responseListings = finalListings.map(({ listing, relevance, wasVisionAnalyzed, visualMatches }) => {
     return toCard(
       listing._original,
       listing._distance,
       relevance.relevanceScore,
       relevance.reasoning,
-      visionAnalyzed,
-      visualMatchedFeatures
+      wasVisionAnalyzed,
+      visualMatches
     );
   });
   const searchId = import_node_crypto.default.randomUUID();
@@ -3956,14 +4096,17 @@ var runSearch = async (request) => {
   });
   const aiFilteredCount = filtered.length - finalListings.length;
   const listingTypeLabel = parsed.listingIntent === "rent" ? "for rent" : parsed.listingIntent === "sale" ? "for sale" : "";
-  const visualFeatureLabel = requestedVisualFeatures.length > 0 ? ` with ${requestedVisualFeatures.join(", ")}` : "";
-  const visualMatchCount = finalListings.filter((l) => l.visualScore > 0).length;
-  let note = matchType === "exact" ? aiFilteredCount > 0 ? `Found ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}${aiFilteredCount > 0 ? ` (filtered from ${filtered.length})` : ""}.` : `Showing ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}.`.trim() : aiFilteredCount > 0 ? `AI analyzed ${filtered.length} near-miss results, showing ${finalListings.length} most relevant ${listingTypeLabel}${visualFeatureLabel}.` : `No exact matches. Showing ${finalListings.length} closest ${listingTypeLabel}${visualFeatureLabel} matches.`.trim();
-  if (requestedVisualFeatures.length > 0 && visualMatchCount > 0) {
-    note += ` ${visualMatchCount} listings mention these features.`;
-  }
-  if (visionAnalyzedCount > 0) {
-    note += ` \u{1F50D} AI analyzed ${visionAnalyzedCount} photos to find matches.`;
+  const visualFeatureLabel = hasVisualFeatureRequest ? ` with ${requestedVisualFeatures.join(", ")}` : "";
+  const visionConfirmedCount = finalListings.filter((l) => l.wasVisionAnalyzed && l.visualMatches.length > 0).length;
+  const textConfirmedCount = finalListings.filter((l) => l.relevance.relevanceScore >= 75).length;
+  let note = matchType === "exact" ? aiFilteredCount > 0 ? `\u{1F916} AI analyzed ${filtered.length} listings, showing ${finalListings.length} most relevant${visualFeatureLabel}.` : `\u{1F916} AI found ${finalListings.length} ${listingTypeLabel} listings${visualFeatureLabel}.`.trim() : aiFilteredCount > 0 ? `\u{1F916} AI analyzed ${filtered.length} near-miss results, showing ${finalListings.length} most relevant${visualFeatureLabel}.` : `No exact matches. Showing ${finalListings.length} closest${visualFeatureLabel} matches.`.trim();
+  if (hasVisualFeatureRequest) {
+    if (visionConfirmedCount > 0) {
+      note += ` \u{1F4F7} ${visionConfirmedCount} confirmed via photo analysis.`;
+    }
+    if (textConfirmedCount > 0 && visionConfirmedCount === 0) {
+      note += ` ${textConfirmedCount} mention these features in description.`;
+    }
   }
   return {
     searchId,
@@ -3974,7 +4117,7 @@ var runSearch = async (request) => {
     listings: responseListings,
     blockedSites,
     // Include detected visual features in response
-    detectedVisualFeatures: requestedVisualFeatures.length > 0 ? requestedVisualFeatures : void 0
+    detectedVisualFeatures: hasVisualFeatureRequest ? requestedVisualFeatures : void 0
   };
 };
 
@@ -4250,12 +4393,18 @@ ${comparison}`
         return { success: false, result: null, summary: "Please provide a valid property price" };
       }
       let imtRate = 0;
-      if (price <= 97064) imtRate = 0;
-      else if (price <= 132774) imtRate = 0.02;
-      else if (price <= 181034) imtRate = 0.05;
-      else if (price <= 301688) imtRate = 0.07;
-      else if (price <= 578598) imtRate = 0.08;
-      else imtRate = 0.06;
+      if (price <= 97064)
+        imtRate = 0;
+      else if (price <= 132774)
+        imtRate = 0.02;
+      else if (price <= 181034)
+        imtRate = 0.05;
+      else if (price <= 301688)
+        imtRate = 0.07;
+      else if (price <= 578598)
+        imtRate = 0.08;
+      else
+        imtRate = 0.06;
       const imt = price * imtRate;
       const stampDuty = price * 8e-3;
       const notaryFees = Math.min(price * 0.01, 2e3);
@@ -4508,7 +4657,8 @@ function getAllThreads() {
 }
 function addMessage(threadId, role, content, type, searchContext) {
   const thread = threads.get(threadId);
-  if (!thread) return null;
+  if (!thread)
+    return null;
   const now = (/* @__PURE__ */ new Date()).toISOString();
   thread.messages.push({
     role,
@@ -4528,7 +4678,8 @@ function addMessage(threadId, role, content, type, searchContext) {
 }
 function getConversationHistory(threadId, limit = 20) {
   const thread = threads.get(threadId);
-  if (!thread) return [];
+  if (!thread)
+    return [];
   return thread.messages.slice(-limit).map((m) => ({ role: m.role, content: m.content }));
 }
 function getLastSearchContext(threadId) {
@@ -4551,7 +4702,8 @@ function deleteThread(threadId) {
 }
 function updateThreadTitle(threadId, title) {
   const thread = threads.get(threadId);
-  if (!thread) return null;
+  if (!thread)
+    return null;
   thread.title = title;
   thread.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
   return thread;
@@ -5195,7 +5347,8 @@ function extractArea2(params) {
     const areaParam = params.find((p) => p.key === key);
     if (areaParam?.value?.key) {
       const parsed = parseFloat(areaParam.value.key.replace(/[^\d.]/g, ""));
-      if (!isNaN(parsed)) return parsed;
+      if (!isNaN(parsed))
+        return parsed;
     }
   }
   return void 0;
@@ -5204,7 +5357,8 @@ function extractBedrooms2(params) {
   const bedsParam = params.find((p) => p.key === "rooms" || p.key === "quartos" || p.key === "t");
   if (bedsParam?.value?.key) {
     const match = bedsParam.value.key.match(/(\d+)/);
-    if (match) return parseInt(match[1], 10);
+    if (match)
+      return parseInt(match[1], 10);
   }
   return void 0;
 }
@@ -5212,7 +5366,8 @@ function extractBathrooms2(params) {
   const bathsParam = params.find((p) => p.key === "bathrooms" || p.key === "casas_banho");
   if (bathsParam?.value?.key) {
     const match = bathsParam.value.key.match(/(\d+)/);
-    if (match) return parseInt(match[1], 10);
+    if (match)
+      return parseInt(match[1], 10);
   }
   return void 0;
 }
@@ -5597,7 +5752,8 @@ function extractArea3(params) {
     const areaParam = params.find((p) => p.key === key);
     if (areaParam?.value?.key) {
       const parsed = parseFloat(areaParam.value.key.replace(/[^\d.]/g, ""));
-      if (!isNaN(parsed)) return parsed;
+      if (!isNaN(parsed))
+        return parsed;
     }
   }
   return void 0;
@@ -5606,7 +5762,8 @@ function extractBedrooms3(params) {
   const bedsParam = params.find((p) => p.key === "rooms" || p.key === "quartos" || p.key === "t");
   if (bedsParam?.value?.key) {
     const match = bedsParam.value.key.match(/(\d+)/);
-    if (match) return parseInt(match[1], 10);
+    if (match)
+      return parseInt(match[1], 10);
   }
   return void 0;
 }
@@ -5614,7 +5771,8 @@ function extractBathrooms3(params) {
   const bathsParam = params.find((p) => p.key === "bathrooms" || p.key === "casas_banho");
   if (bathsParam?.value?.key) {
     const match = bathsParam.value.key.match(/(\d+)/);
-    if (match) return parseInt(match[1], 10);
+    if (match)
+      return parseInt(match[1], 10);
   }
   return void 0;
 }
@@ -5675,7 +5833,8 @@ router8.get("/stats", async (_req, res) => {
     const listingsData = store2.getCollection("listings") || [];
     const cities = /* @__PURE__ */ new Set();
     listingsData.forEach((doc) => {
-      if (doc.metadata?.city) cities.add(doc.metadata.city);
+      if (doc.metadata?.city)
+        cities.add(doc.metadata.city);
     });
     res.json({
       collections: stats,
@@ -5940,7 +6099,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 function isListingRecent(listing) {
-  if (!listing.lastSeenAt) return true;
+  if (!listing.lastSeenAt)
+    return true;
   const listingDate = new Date(listing.lastSeenAt);
   const cutoffDate = /* @__PURE__ */ new Date();
   cutoffDate.setDate(cutoffDate.getDate() - CONFIG.maxListingAgeDays);
@@ -5986,9 +6146,11 @@ async function runIndexingCycle() {
             console.error(`[Indexer] Error in search:`, error);
           }
         }
-        if (allListings.length >= CONFIG.maxListingsPerRun) break;
+        if (allListings.length >= CONFIG.maxListingsPerRun)
+          break;
       }
-      if (allListings.length >= CONFIG.maxListingsPerRun) break;
+      if (allListings.length >= CONFIG.maxListingsPerRun)
+        break;
     }
     if (CONFIG.enableVisionAnalysis && allListings.length > 0) {
       const visionStatus = getVisionServiceStatus();

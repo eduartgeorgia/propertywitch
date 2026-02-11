@@ -21,8 +21,10 @@ export const MATCH_RULES = {
   exactToleranceAbsoluteEur: 50,
   nearMissTolerancePercent: 0.1,
   nearMissToleranceAbsoluteEur: 200,
-  strictRadiusKm: 50,
-  nearMissRadiusKm: 50,
+  // Disabled geo filtering - this app searches Portugal from anywhere in the world
+  // Set to 99999 to effectively disable the radius filter
+  strictRadiusKm: 99999,
+  nearMissRadiusKm: 99999,
 };
 
 export const FX_RATES = {
