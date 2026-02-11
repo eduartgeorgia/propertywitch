@@ -73,6 +73,7 @@ export type ListingCard = {
   baths?: number;
   areaSqm?: number;
   image?: string;
+  photos?: string[]; // All photos for carousel
   sourceSite: string;
   sourceUrl: string;
   distanceKm?: number;
