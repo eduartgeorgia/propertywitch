@@ -152,6 +152,7 @@ const toCard = (
     baths: listing.baths,
     areaSqm: listing.areaSqm,
     image: listing.photos[0],
+    photos: listing.photos, // All photos for carousel
     sourceSite: listing.sourceSite,
     sourceUrl: listing.sourceUrl,
     distanceKm,

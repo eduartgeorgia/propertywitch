@@ -146,6 +146,7 @@ const App = () => {
   
   // Quick Look state
   const [quickLookListing, setQuickLookListing] = useState<ListingCard | null>(null);
+  const [carouselIndex, setCarouselIndex] = useState(0);
   
   // Chat threads state
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -552,6 +553,20 @@ const App = () => {
       if (e.key === "Escape" && quickLookListing) {
         e.preventDefault();
         setQuickLookListing(null);
+      }
+      
+      // Arrow keys for carousel navigation
+      if (quickLookListing) {
+        const photos = quickLookListing.photos?.length ? quickLookListing.photos : (quickLookListing.image ? [quickLookListing.image] : []);
+        if (photos.length > 1) {
+          if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            setCarouselIndex((prev) => (prev === 0 ? photos.length - 1 : prev - 1));
+          } else if (e.key === "ArrowRight") {
+            e.preventDefault();
+            setCarouselIndex((prev) => (prev === photos.length - 1 ? 0 : prev + 1));
+          }
+        }
       }
     };
 
@@ -1198,7 +1213,10 @@ const App = () => {
                   <div className="card-actions">
                     <button 
                       className="quick-look-btn"
-                      onClick={() => setQuickLookListing(listing)}
+                      onClick={() => {
+                        setQuickLookListing(listing);
+                        setCarouselIndex(0);
+                      }}
                       title="Quick Look (Space)"
                     >
                       👁️
@@ -1341,11 +1359,57 @@ const App = () => {
             
             <div className="quick-look-content">
               <div className="quick-look-image">
-                {quickLookListing.image ? (
-                  <img src={quickLookListing.image} alt={quickLookListing.title} />
-                ) : (
-                  <div className="quick-look-placeholder">No image available</div>
-                )}
+                {(() => {
+                  const photos = quickLookListing.photos?.length ? quickLookListing.photos : (quickLookListing.image ? [quickLookListing.image] : []);
+                  if (photos.length === 0) {
+                    return <div className="quick-look-placeholder">No image available</div>;
+                  }
+                  return (
+                    <>
+                      <img 
+                        src={photos[carouselIndex]} 
+                        alt={`${quickLookListing.title} - Photo ${carouselIndex + 1}`} 
+                      />
+                      {photos.length > 1 && (
+                        <>
+                          <button 
+                            className="carousel-btn carousel-prev"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCarouselIndex((prev) => (prev === 0 ? photos.length - 1 : prev - 1));
+                            }}
+                          >
+                            ‹
+                          </button>
+                          <button 
+                            className="carousel-btn carousel-next"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCarouselIndex((prev) => (prev === photos.length - 1 ? 0 : prev + 1));
+                            }}
+                          >
+                            ›
+                          </button>
+                          <div className="carousel-indicators">
+                            {photos.map((_, idx) => (
+                              <button
+                                key={idx}
+                                className={`carousel-dot ${idx === carouselIndex ? 'active' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCarouselIndex(idx);
+                                }}
+                              />
+                            ))}
+                          </div>
+                          <div className="carousel-counter">
+                            {carouselIndex + 1} / {photos.length}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
                 {quickLookListing.listingType && (
                   <span className={`listing-type-badge large ${quickLookListing.listingType}`}>
                     {quickLookListing.listingType === 'sale' ? '🏷️ For Sale' : '🔑 For Rent'}
@@ -1430,7 +1494,7 @@ const App = () => {
             </div>
             
             <div className="quick-look-hint">
-              Press <kbd>Esc</kbd> to close
+              Press <kbd>Esc</kbd> to close {quickLookListing.photos && quickLookListing.photos.length > 1 && <> • <kbd>←</kbd> <kbd>→</kbd> to browse photos</>}
             </div>
           </div>
         </div>
