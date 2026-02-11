@@ -22,7 +22,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/index.ts
-var import_express11 = __toESM(require("express"));
+var import_express12 = __toESM(require("express"));
 var import_cors = __toESM(require("cors"));
 var import_node_path4 = __toESM(require("node:path"));
 
@@ -3918,6 +3918,8 @@ var toCard = (listing, distanceKm2, relevanceScore, relevanceReasoning, visionAn
     baths: listing.baths,
     areaSqm: listing.areaSqm,
     image: listing.photos[0],
+    photos: listing.photos,
+    // All photos for carousel
     sourceSite: listing.sourceSite,
     sourceUrl: listing.sourceUrl,
     distanceKm: distanceKm2,
@@ -6357,10 +6359,315 @@ router10.post("/indexer/run", async (_req, res) => {
 });
 var indexer_default = router10;
 
+// src/routes/auth.ts
+var import_express11 = require("express");
+var import_crypto = __toESM(require("crypto"));
+var import_path = __toESM(require("path"));
+var import_fs = __toESM(require("fs"));
+var router11 = (0, import_express11.Router)();
+var DATA_DIR2 = import_path.default.resolve(process.cwd(), "data");
+var USERS_FILE = import_path.default.join(DATA_DIR2, "users.json");
+if (!import_fs.default.existsSync(DATA_DIR2)) {
+  import_fs.default.mkdirSync(DATA_DIR2, { recursive: true });
+}
+var JWT_SECRET = process.env.JWT_SECRET || "property-witch-secret-key-change-in-production";
+var loadUsers = () => {
+  try {
+    if (import_fs.default.existsSync(USERS_FILE)) {
+      return JSON.parse(import_fs.default.readFileSync(USERS_FILE, "utf-8"));
+    }
+  } catch (error) {
+    console.error("Error loading users:", error);
+  }
+  return { users: [] };
+};
+var saveUsers = (db) => {
+  import_fs.default.writeFileSync(USERS_FILE, JSON.stringify(db, null, 2));
+};
+var hashPassword = (password) => {
+  return import_crypto.default.createHash("sha256").update(password + JWT_SECRET).digest("hex");
+};
+var generateToken = (user) => {
+  const payload = {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    subscription: user.subscription,
+    iat: Date.now(),
+    exp: Date.now() + 7 * 24 * 60 * 60 * 1e3
+    // 7 days
+  };
+  const base64Payload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = import_crypto.default.createHmac("sha256", JWT_SECRET).update(base64Payload).digest("base64url");
+  return `${base64Payload}.${signature}`;
+};
+var verifyToken = (token) => {
+  try {
+    const [payloadB64, signature] = token.split(".");
+    const expectedSignature = import_crypto.default.createHmac("sha256", JWT_SECRET).update(payloadB64).digest("base64url");
+    if (signature !== expectedSignature) {
+      return { valid: false };
+    }
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
+    if (payload.exp < Date.now()) {
+      return { valid: false };
+    }
+    return { valid: true, payload };
+  } catch {
+    return { valid: false };
+  }
+};
+var SUBSCRIPTION_PLANS = {
+  free: {
+    name: "Free",
+    price: 0,
+    priceId: null,
+    features: [
+      "5 property searches per month",
+      "Basic AI assistance",
+      "Save up to 10 properties"
+    ],
+    searchLimit: 5,
+    savedPropertiesLimit: 10
+  },
+  starter: {
+    name: "Starter",
+    price: 9.99,
+    priceId: process.env.STRIPE_STARTER_PRICE_ID || "price_starter",
+    features: [
+      "50 property searches per month",
+      "Enhanced AI assistance",
+      "Save up to 100 properties",
+      "Email notifications",
+      "PDF reports"
+    ],
+    searchLimit: 50,
+    savedPropertiesLimit: 100
+  },
+  pro: {
+    name: "Professional",
+    price: 24.99,
+    priceId: process.env.STRIPE_PRO_PRICE_ID || "price_pro",
+    features: [
+      "Unlimited property searches",
+      "Priority AI assistance",
+      "Unlimited saved properties",
+      "Real-time alerts",
+      "Advanced analytics",
+      "API access"
+    ],
+    searchLimit: -1,
+    // unlimited
+    savedPropertiesLimit: -1
+  },
+  enterprise: {
+    name: "Enterprise",
+    price: 99.99,
+    priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || "price_enterprise",
+    features: [
+      "Everything in Professional",
+      "White-label options",
+      "Dedicated support",
+      "Custom integrations",
+      "Team accounts",
+      "SLA guarantee"
+    ],
+    searchLimit: -1,
+    savedPropertiesLimit: -1
+  }
+};
+router11.post("/register", async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: "Email, password, and name are required" });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Invalid email format" });
+    }
+    const db = loadUsers();
+    if (db.users.find((u) => u.email.toLowerCase() === email.toLowerCase())) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const newUser = {
+      id: import_crypto.default.randomUUID(),
+      email: email.toLowerCase(),
+      passwordHash: hashPassword(password),
+      name,
+      createdAt: now,
+      subscription: {
+        plan: "free",
+        status: "active",
+        expiresAt: null
+      },
+      searchesThisMonth: 0,
+      lastSearchReset: now
+    };
+    db.users.push(newUser);
+    saveUsers(db);
+    const token = generateToken(newUser);
+    res.status(201).json({
+      message: "Registration successful",
+      token,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        subscription: newUser.subscription
+      }
+    });
+  } catch (error) {
+    console.error("Registration error:", error);
+    res.status(500).json({ error: "Registration failed" });
+  }
+});
+router11.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+    const db = loadUsers();
+    const user = db.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user || user.passwordHash !== hashPassword(password)) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const token = generateToken(user);
+    res.json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        subscription: user.subscription,
+        searchesThisMonth: user.searchesThisMonth
+      }
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+router11.get("/me", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+    const token = authHeader.substring(7);
+    const { valid, payload } = verifyToken(token);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    const db = loadUsers();
+    const user = db.users.find((u) => u.id === payload.id);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const now = /* @__PURE__ */ new Date();
+    const lastReset = new Date(user.lastSearchReset);
+    if (now.getMonth() !== lastReset.getMonth() || now.getFullYear() !== lastReset.getFullYear()) {
+      user.searchesThisMonth = 0;
+      user.lastSearchReset = now.toISOString();
+      saveUsers(db);
+    }
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        subscription: user.subscription,
+        searchesThisMonth: user.searchesThisMonth,
+        createdAt: user.createdAt
+      }
+    });
+  } catch (error) {
+    console.error("Auth check error:", error);
+    res.status(500).json({ error: "Authentication check failed" });
+  }
+});
+router11.get("/plans", (_req, res) => {
+  res.json({ plans: SUBSCRIPTION_PLANS });
+});
+router11.post("/subscribe", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+    const token = authHeader.substring(7);
+    const { valid, payload } = verifyToken(token);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    const { plan, paymentMethodId } = req.body;
+    if (!plan || !["free", "starter", "pro", "enterprise"].includes(plan)) {
+      return res.status(400).json({ error: "Invalid plan" });
+    }
+    const db = loadUsers();
+    const userIndex = db.users.findIndex((u) => u.id === payload.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const expiresAt = plan === "free" ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3).toISOString();
+    db.users[userIndex].subscription = {
+      plan,
+      status: "active",
+      expiresAt,
+      stripeCustomerId: paymentMethodId ? `cus_demo_${payload.id}` : void 0,
+      stripeSubscriptionId: paymentMethodId ? `sub_demo_${Date.now()}` : void 0
+    };
+    saveUsers(db);
+    const newToken = generateToken(db.users[userIndex]);
+    res.json({
+      message: "Subscription updated successfully",
+      token: newToken,
+      subscription: db.users[userIndex].subscription
+    });
+  } catch (error) {
+    console.error("Subscription error:", error);
+    res.status(500).json({ error: "Subscription update failed" });
+  }
+});
+router11.post("/cancel-subscription", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+    const token = authHeader.substring(7);
+    const { valid, payload } = verifyToken(token);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    const db = loadUsers();
+    const userIndex = db.users.findIndex((u) => u.id === payload.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    db.users[userIndex].subscription.status = "cancelled";
+    saveUsers(db);
+    res.json({
+      message: "Subscription cancelled. You'll retain access until the end of your billing period.",
+      subscription: db.users[userIndex].subscription
+    });
+  } catch (error) {
+    console.error("Cancel subscription error:", error);
+    res.status(500).json({ error: "Failed to cancel subscription" });
+  }
+});
+var auth_default = router11;
+
 // src/index.ts
-var app = (0, import_express11.default)();
+var app = (0, import_express12.default)();
 app.use((0, import_cors.default)());
-app.use(import_express11.default.json({ limit: "2mb" }));
+app.use(import_express12.default.json({ limit: "2mb" }));
 app.use("/api", search_default);
 app.use("/api", report_default);
 app.use("/api", diagnostics_default);
@@ -6370,8 +6677,9 @@ app.use("/api", training_default);
 app.use("/api", agent_default);
 app.use("/api", threads_default);
 app.use("/api", indexer_default);
+app.use("/api/auth", auth_default);
 app.use("/api/index", index_listings_default);
-app.use("/reports", import_express11.default.static(import_node_path4.default.resolve(APP_CONFIG.reportsDir)));
+app.use("/reports", import_express12.default.static(import_node_path4.default.resolve(APP_CONFIG.reportsDir)));
 app.get("/", (_req, res) => {
   res.json({ status: "ok", name: "ai-property-assistant-server" });
 });
