@@ -1075,6 +1075,18 @@ const App = () => {
             >
               {isListening ? '🔴' : '🎤'}
             </button>
+            <button 
+              onClick={() => {
+                setQuery('show previous results');
+                setTimeout(() => handleSearch(), 100);
+              }} 
+              className="previous-btn"
+              title="Show previous search results"
+              type="button"
+              disabled={isLoading}
+            >
+              ↩️
+            </button>
             <textarea
               ref={textareaRef}
               value={query}

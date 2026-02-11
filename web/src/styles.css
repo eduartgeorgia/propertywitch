@@ -604,6 +604,34 @@ body {
   50% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
 }
 
+/* Previous results button */
+.previous-btn {
+  background: var(--clay);
+  color: var(--ink);
+  border: none;
+  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.previous-btn:hover {
+  background: var(--ember);
+  color: var(--white);
+  transform: scale(1.05);
+}
+
+.previous-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Voice controls */
 .voice-controls {
   display: flex;
