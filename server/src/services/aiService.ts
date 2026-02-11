@@ -371,7 +371,7 @@ async function callGroq(prompt: string, system?: string, conversationHistory?: A
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60000); // 60 second timeout for DeepSeek
+      const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout for DeepSeek
 
       const response = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
@@ -1193,19 +1193,19 @@ Return ONLY valid JSON - no explanations outside the JSON array.`;
 // Configuration for AI analysis behavior
 const AI_ANALYSIS_CONFIG = {
   // Maximum listings to analyze in a single AI call (smaller = faster response)
-  batchSize: 5, // Reduced from 8 to avoid Groq rate limits
-  // Maximum total listings for AI analysis (larger sets use smart pre-filtering)
-  maxListingsForAI: 50, // Reduced to avoid rate limits
+  batchSize: 15, // Analyze all 15 in one call for speed
+  // Maximum total listings for AI analysis - LIMIT TO 15
+  maxListingsForAI: 15, // Hard limit for fast responses
   // Timeout for AI analysis in milliseconds
-  analysisTimeoutMs: 45000, // 45 seconds - reduced from 90 to fail faster
+  analysisTimeoutMs: 12000, // 12 seconds max
   // Enable/disable AI listing analysis
   enableAIAnalysis: true,
   // Threshold for detailed vs brief analysis
-  detailedAnalysisThreshold: 15, // Reduced for faster responses
+  detailedAnalysisThreshold: 15,
   // ALWAYS use AI when visual features are detected
   forceAIForVisualFeatures: true,
   // Delay between batches to avoid rate limits (ms)
-  batchDelayMs: 2000, // 2 seconds between batches
+  batchDelayMs: 500, // 0.5 seconds between batches
 };
 
 /**

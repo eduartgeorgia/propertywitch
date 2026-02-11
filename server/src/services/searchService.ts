@@ -266,7 +266,11 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
   }
   
   // Step 2: Prepare listings for AI analysis (with FULL descriptions)
-  const listingsForAnalysis = filtered.map(({ listing, distance }) => {
+  // LIMIT to 15 listings max for fast responses
+  const MAX_LISTINGS = 15;
+  const limitedFiltered = filtered.slice(0, MAX_LISTINGS);
+  
+  const listingsForAnalysis = limitedFiltered.map(({ listing, distance }) => {
     return {
       id: listing.id,
       title: listing.title,
@@ -283,7 +287,7 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
     };
   });
 
-  console.log(`[Search] 🤖 Starting AI analysis of ${listingsForAnalysis.length} listings...`);
+  console.log(`[Search] 🤖 Starting AI analysis of ${listingsForAnalysis.length} listings (limited from ${filtered.length})...`);
 
   // Step 3: Get AI-filtered relevant listings
   // AI now:

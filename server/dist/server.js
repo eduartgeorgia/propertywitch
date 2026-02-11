@@ -2308,7 +2308,7 @@ async function callGroq(prompt, system, conversationHistory) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6e4);
+      const timeout = setTimeout(() => controller.abort(), 15e3);
       const response = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: {
@@ -2848,24 +2848,23 @@ When user asks for visual features (sea view, pool, forest, etc.), CHECK IF THE 
 Return ONLY valid JSON - no explanations outside the JSON array.`;
 var AI_ANALYSIS_CONFIG = {
   // Maximum listings to analyze in a single AI call (smaller = faster response)
-  batchSize: 5,
-  // Reduced from 8 to avoid Groq rate limits
-  // Maximum total listings for AI analysis (larger sets use smart pre-filtering)
-  maxListingsForAI: 50,
-  // Reduced to avoid rate limits
+  batchSize: 15,
+  // Analyze all 15 in one call for speed
+  // Maximum total listings for AI analysis - LIMIT TO 15
+  maxListingsForAI: 15,
+  // Hard limit for fast responses
   // Timeout for AI analysis in milliseconds
-  analysisTimeoutMs: 45e3,
-  // 45 seconds - reduced from 90 to fail faster
+  analysisTimeoutMs: 12e3,
+  // 12 seconds max
   // Enable/disable AI listing analysis
   enableAIAnalysis: true,
   // Threshold for detailed vs brief analysis
   detailedAnalysisThreshold: 15,
-  // Reduced for faster responses
   // ALWAYS use AI when visual features are detected
   forceAIForVisualFeatures: true,
   // Delay between batches to avoid rate limits (ms)
-  batchDelayMs: 2e3
-  // 2 seconds between batches
+  batchDelayMs: 500
+  // 0.5 seconds between batches
 };
 function buildAnalysisPrompt(userQuery, listings, isDetailed) {
   const listingSummaries = listings.map((l, idx) => {
@@ -3975,7 +3974,9 @@ var runSearch = async (request) => {
     console.log(`[Search] \u{1F50D} Visual features detected in query: ${requestedVisualFeatures.join(", ")}`);
     console.log(`[Search] AI will analyze listing text for these features, then vision AI for photos if needed`);
   }
-  const listingsForAnalysis = filtered.map(({ listing, distance }) => {
+  const MAX_LISTINGS = 15;
+  const limitedFiltered = filtered.slice(0, MAX_LISTINGS);
+  const listingsForAnalysis = limitedFiltered.map(({ listing, distance }) => {
     return {
       id: listing.id,
       title: listing.title,
@@ -3992,7 +3993,7 @@ var runSearch = async (request) => {
       _distance: distance
     };
   });
-  console.log(`[Search] \u{1F916} Starting AI analysis of ${listingsForAnalysis.length} listings...`);
+  console.log(`[Search] \u{1F916} Starting AI analysis of ${listingsForAnalysis.length} listings (limited from ${filtered.length})...`);
   const relevantListings = await getRelevantListings(request.query, listingsForAnalysis);
   console.log(`[Search] \u{1F916} AI analyzed ${relevantListings.length} relevant listings from ${listingsForAnalysis.length} total`);
   let visionAnalyzedCount = 0;
