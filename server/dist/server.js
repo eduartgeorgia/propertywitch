@@ -4115,6 +4115,24 @@ var runSearch = async (request) => {
     finalListings = [...visionConfirmed, ...textConfirmed, ...others];
     console.log(`[Search] \u{1F4CA} Results: ${visionConfirmed.length} vision-confirmed, ${textConfirmed.length} text-confirmed, ${others.length} other`);
   }
+  if (appliedRange.max || appliedRange.min) {
+    const beforeStrictFilter = finalListings.length;
+    finalListings = finalListings.filter(({ listing }) => {
+      const price = listing.priceEur;
+      if (price === null || price === void 0)
+        return true;
+      const maxPrice = appliedRange.max ? appliedRange.max * 1.01 : Infinity;
+      const minPrice = appliedRange.min ? appliedRange.min * 0.99 : 0;
+      const withinRange = price >= minPrice && price <= maxPrice;
+      if (!withinRange) {
+        console.log(`[Search] \u{1F6AB} Price filter removed: \u20AC${price} (range: \u20AC${appliedRange.min || 0}-\u20AC${appliedRange.max || "\u221E"})`);
+      }
+      return withinRange;
+    });
+    if (beforeStrictFilter > finalListings.length) {
+      console.log(`[Search] \u{1F4B0} Strict price filter removed ${beforeStrictFilter - finalListings.length} overpriced listings`);
+    }
+  }
   const responseListings = finalListings.map(({ listing, relevance, wasVisionAnalyzed, visualMatches }) => {
     return toCard(
       listing._original,

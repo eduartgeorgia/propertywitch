@@ -435,6 +435,29 @@ export const runSearch = async (request: SearchRequest): Promise<SearchResponse>
     console.log(`[Search] 📊 Results: ${visionConfirmed.length} vision-confirmed, ${textConfirmed.length} text-confirmed, ${others.length} other`);
   }
 
+  // STRICT PRICE ENFORCEMENT: Remove any listings outside price range after AI analysis
+  if (appliedRange.max || appliedRange.min) {
+    const beforeStrictFilter = finalListings.length;
+    finalListings = finalListings.filter(({ listing }) => {
+      const price = listing.priceEur;
+      if (price === null || price === undefined) return true; // Keep listings without price (rare)
+      
+      // Strict enforcement with a small tolerance for rounding
+      const maxPrice = appliedRange.max ? appliedRange.max * 1.01 : Infinity; // 1% tolerance
+      const minPrice = appliedRange.min ? appliedRange.min * 0.99 : 0;
+      
+      const withinRange = price >= minPrice && price <= maxPrice;
+      if (!withinRange) {
+        console.log(`[Search] 🚫 Price filter removed: €${price} (range: €${appliedRange.min || 0}-€${appliedRange.max || '∞'})`);
+      }
+      return withinRange;
+    });
+    
+    if (beforeStrictFilter > finalListings.length) {
+      console.log(`[Search] 💰 Strict price filter removed ${beforeStrictFilter - finalListings.length} overpriced listings`);
+    }
+  }
+
   // Convert to response format with AI relevance scores
   const responseListings = finalListings.map(({ listing, relevance, wasVisionAnalyzed, visualMatches }) => {
     return toCard(
