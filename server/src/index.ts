@@ -12,6 +12,7 @@ import agentRouter from "./routes/agent";
 import indexListingsRouter from "./routes/index-listings";
 import threadsRouter from "./routes/threads";
 import indexerRouter from "./routes/indexer";
+import authRouter from "./routes/auth";
 import { initializeRAG } from "./services/rag/index";
 import { startScheduledIndexer } from "./services/scheduledIndexer";
 
@@ -29,6 +30,7 @@ app.use("/api", trainingRouter);
 app.use("/api", agentRouter);
 app.use("/api", threadsRouter);
 app.use("/api", indexerRouter);
+app.use("/api/auth", authRouter);
 app.use("/api/index", indexListingsRouter);
 
 app.use("/reports", express.static(path.resolve(APP_CONFIG.reportsDir)));

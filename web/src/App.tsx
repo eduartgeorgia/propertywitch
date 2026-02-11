@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import type { ListingCard, SearchResponse, ChatThread } from "./types";
+import { AuthModal, SubscriptionModal, UserMenu, type User } from "./components/Auth";
 
 // API base URL - configurable for production deployment
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
@@ -147,6 +148,12 @@ const App = () => {
   // Quick Look state
   const [quickLookListing, setQuickLookListing] = useState<ListingCard | null>(null);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  
+  // Auth state
+  const [user, setUser] = useState<User | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   
   // Chat threads state
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -574,6 +581,49 @@ const App = () => {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [quickLookListing]);
 
+  // Initialize auth from localStorage
+  useEffect(() => {
+    const initAuth = async () => {
+      const storedToken = localStorage.getItem("auth_token");
+      if (storedToken) {
+        try {
+          const response = await fetchWithRetry("/api/auth/me", {
+            headers: { Authorization: `Bearer ${storedToken}` },
+          }, 2, 1000);
+          
+          if (response.ok) {
+            const data = await response.json();
+            setUser(data.user);
+            setAuthToken(storedToken);
+          } else {
+            // Token invalid, clear it
+            localStorage.removeItem("auth_token");
+          }
+        } catch (error) {
+          console.error("Auth check failed:", error);
+        }
+      }
+    };
+    initAuth();
+  }, []);
+
+  // Auth handlers
+  const handleAuthSuccess = (newUser: User, token: string) => {
+    setUser(newUser);
+    setAuthToken(token);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("auth_token");
+    setUser(null);
+    setAuthToken(null);
+  };
+
+  const handleSubscriptionUpdate = (updatedUser: User, token: string) => {
+    setUser(updatedUser);
+    setAuthToken(token);
+  };
+
   const listings = searchResponse?.listings ?? [];
   const blockedSites = searchResponse?.blockedSites ?? [];
 
@@ -949,6 +999,14 @@ const App = () => {
           <p className="eyebrow">Portugal Listings</p>
           <h1>AI Property Witch</h1>
         </div>
+        
+        {/* User Authentication Menu */}
+        <UserMenu 
+          user={user}
+          onLogout={handleLogout}
+          onOpenSubscription={() => setShowSubscriptionModal(true)}
+          onOpenAuth={() => setShowAuthModal(true)}
+        />
         <div className="header-card">
           <div className="ai-status-section">
             <p className="label">AI Status</p>
@@ -1499,6 +1557,22 @@ const App = () => {
           </div>
         </div>
       )}
+      
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
+      
+      {/* Subscription Modal */}
+      <SubscriptionModal
+        isOpen={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        user={user}
+        token={authToken}
+        onSubscriptionUpdate={handleSubscriptionUpdate}
+      />
       </main>
     </div>
   );
