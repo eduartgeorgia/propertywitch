@@ -2319,3 +2319,43 @@ button:disabled {
   }
 }
 
+/* Anonymous search limit indicator */
+.anonymous-search-limit {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, rgba(47, 74, 58, 0.08), rgba(184, 107, 75, 0.05));
+  border-radius: 12px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.anonymous-search-limit span {
+  color: var(--forest);
+  font-weight: 500;
+}
+
+.anonymous-search-limit span.limit-reached {
+  color: var(--ember);
+  font-weight: 600;
+}
+
+.anonymous-search-limit .sign-up-cta {
+  background: var(--forest);
+  color: var(--white);
+  border: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.anonymous-search-limit .sign-up-cta:hover {
+  background: var(--ember);
+  transform: translateY(-1px);
+}
+

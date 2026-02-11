@@ -33,6 +33,7 @@ import {
   generateFeatureSummary,
   getVisionServiceStatus,
 } from "../services/visionService";
+import { checkAnonymousSearchLimit, getClientIP } from "./auth";
 
 const router = Router();
 
@@ -130,6 +131,29 @@ router.post("/chat", async (req, res) => {
   const { message, mode, threadId } = parsed.data;
   let { conversationHistory, lastSearchContext } = parsed.data;
   const userLocation = parsed.data.userLocation as UserLocation;
+  
+  // Check for auth token - if not authenticated, check anonymous limit
+  const authHeader = req.headers.authorization;
+  const isAuthenticated = authHeader?.startsWith("Bearer ");
+  
+  if (!isAuthenticated) {
+    // Get fingerprint from request body if provided
+    const fingerprint = (req.body as any).fingerprint;
+    const limitCheck = checkAnonymousSearchLimit(req, fingerprint);
+    
+    if (!limitCheck.allowed) {
+      console.log(`[Chat] Anonymous search limit reached for IP: ${getClientIP(req).substring(0, 8)}...`);
+      return res.status(429).json({
+        type: "limit_reached",
+        message: limitCheck.message,
+        remaining: limitCheck.remaining,
+        total: limitCheck.total,
+        aiAvailable: true,
+      });
+    }
+    
+    console.log(`[Chat] Anonymous search ${limitCheck.total - limitCheck.remaining}/${limitCheck.total} for IP: ${getClientIP(req).substring(0, 8)}...`);
+  }
   
   // Use provided conversation ID or generate a new one
   const conversationId = parsed.data.conversationId || generateConversationId();

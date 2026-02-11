@@ -4271,7 +4271,7 @@ router3.get("/diagnostics", async (_req, res) => {
 var diagnostics_default = router3;
 
 // src/routes/chat.ts
-var import_express4 = require("express");
+var import_express5 = require("express");
 var import_zod3 = require("zod");
 
 // src/services/agentService.ts
@@ -4766,8 +4766,409 @@ function getThreadCount() {
   return threads.size;
 }
 
-// src/routes/chat.ts
+// src/routes/auth.ts
+var import_express4 = require("express");
+var import_crypto = __toESM(require("crypto"));
+var import_path = __toESM(require("path"));
+var import_fs = __toESM(require("fs"));
 var router4 = (0, import_express4.Router)();
+var DATA_DIR2 = import_path.default.resolve(process.cwd(), "data");
+var USERS_FILE = import_path.default.join(DATA_DIR2, "users.json");
+if (!import_fs.default.existsSync(DATA_DIR2)) {
+  import_fs.default.mkdirSync(DATA_DIR2, { recursive: true });
+}
+var JWT_SECRET = process.env.JWT_SECRET || "property-witch-secret-key-change-in-production";
+var IP_TRACKING_FILE = import_path.default.join(DATA_DIR2, "ip-tracking.json");
+var ANONYMOUS_SEARCH_LIMIT = 5;
+var loadIPTracking = () => {
+  try {
+    if (import_fs.default.existsSync(IP_TRACKING_FILE)) {
+      return JSON.parse(import_fs.default.readFileSync(IP_TRACKING_FILE, "utf-8"));
+    }
+  } catch (error) {
+    console.error("Error loading IP tracking:", error);
+  }
+  return { entries: [] };
+};
+var saveIPTracking = (db) => {
+  import_fs.default.writeFileSync(IP_TRACKING_FILE, JSON.stringify(db, null, 2));
+};
+var getClientIP = (req) => {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  if (forwardedFor) {
+    const ips = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor).split(",");
+    return ips[0].trim();
+  }
+  const realIP = req.headers["x-real-ip"];
+  if (realIP) {
+    return Array.isArray(realIP) ? realIP[0] : realIP;
+  }
+  return req.socket?.remoteAddress || req.ip || "unknown";
+};
+var checkAnonymousSearchLimit = (req, fingerprint) => {
+  const ip = getClientIP(req);
+  const db = loadIPTracking();
+  let entry = db.entries.find((e) => e.ip === ip);
+  if (!entry) {
+    entry = {
+      ip,
+      fingerprint,
+      searchCount: 0,
+      firstSearchAt: (/* @__PURE__ */ new Date()).toISOString(),
+      lastSearchAt: (/* @__PURE__ */ new Date()).toISOString(),
+      blocked: false
+    };
+    db.entries.push(entry);
+  }
+  if (fingerprint && entry.fingerprint !== fingerprint) {
+    entry.fingerprint = fingerprint;
+  }
+  if (entry.blocked) {
+    return {
+      allowed: false,
+      remaining: 0,
+      total: ANONYMOUS_SEARCH_LIMIT,
+      message: "This IP has been blocked. Please sign up for an account."
+    };
+  }
+  if (entry.searchCount >= ANONYMOUS_SEARCH_LIMIT) {
+    return {
+      allowed: false,
+      remaining: 0,
+      total: ANONYMOUS_SEARCH_LIMIT,
+      message: "Free search limit reached. Please sign up for an account to continue."
+    };
+  }
+  entry.searchCount++;
+  entry.lastSearchAt = (/* @__PURE__ */ new Date()).toISOString();
+  saveIPTracking(db);
+  return {
+    allowed: true,
+    remaining: ANONYMOUS_SEARCH_LIMIT - entry.searchCount,
+    total: ANONYMOUS_SEARCH_LIMIT
+  };
+};
+var getAnonymousSearchStatus = (req) => {
+  const ip = getClientIP(req);
+  const db = loadIPTracking();
+  const entry = db.entries.find((e) => e.ip === ip);
+  const used = entry?.searchCount || 0;
+  return {
+    remaining: Math.max(0, ANONYMOUS_SEARCH_LIMIT - used),
+    total: ANONYMOUS_SEARCH_LIMIT,
+    used
+  };
+};
+var loadUsers = () => {
+  try {
+    if (import_fs.default.existsSync(USERS_FILE)) {
+      return JSON.parse(import_fs.default.readFileSync(USERS_FILE, "utf-8"));
+    }
+  } catch (error) {
+    console.error("Error loading users:", error);
+  }
+  return { users: [] };
+};
+var saveUsers = (db) => {
+  import_fs.default.writeFileSync(USERS_FILE, JSON.stringify(db, null, 2));
+};
+var hashPassword = (password) => {
+  return import_crypto.default.createHash("sha256").update(password + JWT_SECRET).digest("hex");
+};
+var generateToken = (user) => {
+  const payload = {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    subscription: user.subscription,
+    iat: Date.now(),
+    exp: Date.now() + 7 * 24 * 60 * 60 * 1e3
+    // 7 days
+  };
+  const base64Payload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = import_crypto.default.createHmac("sha256", JWT_SECRET).update(base64Payload).digest("base64url");
+  return `${base64Payload}.${signature}`;
+};
+var verifyToken = (token) => {
+  try {
+    const [payloadB64, signature] = token.split(".");
+    const expectedSignature = import_crypto.default.createHmac("sha256", JWT_SECRET).update(payloadB64).digest("base64url");
+    if (signature !== expectedSignature) {
+      return { valid: false };
+    }
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
+    if (payload.exp < Date.now()) {
+      return { valid: false };
+    }
+    return { valid: true, payload };
+  } catch {
+    return { valid: false };
+  }
+};
+var SUBSCRIPTION_PLANS = {
+  free: {
+    name: "Free",
+    price: 0,
+    priceId: null,
+    features: [
+      "5 property searches per month",
+      "Basic AI assistance",
+      "Save up to 10 properties"
+    ],
+    searchLimit: 5,
+    savedPropertiesLimit: 10
+  },
+  starter: {
+    name: "Starter",
+    price: 9.99,
+    priceId: process.env.STRIPE_STARTER_PRICE_ID || "price_starter",
+    features: [
+      "50 property searches per month",
+      "Enhanced AI assistance",
+      "Save up to 100 properties",
+      "Email notifications",
+      "PDF reports"
+    ],
+    searchLimit: 50,
+    savedPropertiesLimit: 100
+  },
+  pro: {
+    name: "Professional",
+    price: 24.99,
+    priceId: process.env.STRIPE_PRO_PRICE_ID || "price_pro",
+    features: [
+      "Unlimited property searches",
+      "Priority AI assistance",
+      "Unlimited saved properties",
+      "Real-time alerts",
+      "Advanced analytics",
+      "API access"
+    ],
+    searchLimit: -1,
+    // unlimited
+    savedPropertiesLimit: -1
+  },
+  enterprise: {
+    name: "Enterprise",
+    price: 99.99,
+    priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || "price_enterprise",
+    features: [
+      "Everything in Professional",
+      "White-label options",
+      "Dedicated support",
+      "Custom integrations",
+      "Team accounts",
+      "SLA guarantee"
+    ],
+    searchLimit: -1,
+    savedPropertiesLimit: -1
+  }
+};
+router4.post("/register", async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: "Email, password, and name are required" });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Invalid email format" });
+    }
+    const db = loadUsers();
+    if (db.users.find((u) => u.email.toLowerCase() === email.toLowerCase())) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const newUser = {
+      id: import_crypto.default.randomUUID(),
+      email: email.toLowerCase(),
+      passwordHash: hashPassword(password),
+      name,
+      createdAt: now,
+      subscription: {
+        plan: "free",
+        status: "active",
+        expiresAt: null
+      },
+      searchesThisMonth: 0,
+      lastSearchReset: now
+    };
+    db.users.push(newUser);
+    saveUsers(db);
+    const token = generateToken(newUser);
+    res.status(201).json({
+      message: "Registration successful",
+      token,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        subscription: newUser.subscription
+      }
+    });
+  } catch (error) {
+    console.error("Registration error:", error);
+    res.status(500).json({ error: "Registration failed" });
+  }
+});
+router4.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+    const db = loadUsers();
+    const user = db.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user || user.passwordHash !== hashPassword(password)) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const token = generateToken(user);
+    res.json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        subscription: user.subscription,
+        searchesThisMonth: user.searchesThisMonth
+      }
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+router4.get("/me", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+    const token = authHeader.substring(7);
+    const { valid, payload } = verifyToken(token);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    const db = loadUsers();
+    const user = db.users.find((u) => u.id === payload.id);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const now = /* @__PURE__ */ new Date();
+    const lastReset = new Date(user.lastSearchReset);
+    if (now.getMonth() !== lastReset.getMonth() || now.getFullYear() !== lastReset.getFullYear()) {
+      user.searchesThisMonth = 0;
+      user.lastSearchReset = now.toISOString();
+      saveUsers(db);
+    }
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        subscription: user.subscription,
+        searchesThisMonth: user.searchesThisMonth,
+        createdAt: user.createdAt
+      }
+    });
+  } catch (error) {
+    console.error("Auth check error:", error);
+    res.status(500).json({ error: "Authentication check failed" });
+  }
+});
+router4.get("/plans", (_req, res) => {
+  res.json({ plans: SUBSCRIPTION_PLANS });
+});
+router4.post("/subscribe", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+    const token = authHeader.substring(7);
+    const { valid, payload } = verifyToken(token);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    const { plan, paymentMethodId } = req.body;
+    if (!plan || !["free", "starter", "pro", "enterprise"].includes(plan)) {
+      return res.status(400).json({ error: "Invalid plan" });
+    }
+    const db = loadUsers();
+    const userIndex = db.users.findIndex((u) => u.id === payload.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const expiresAt = plan === "free" ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3).toISOString();
+    db.users[userIndex].subscription = {
+      plan,
+      status: "active",
+      expiresAt,
+      stripeCustomerId: paymentMethodId ? `cus_demo_${payload.id}` : void 0,
+      stripeSubscriptionId: paymentMethodId ? `sub_demo_${Date.now()}` : void 0
+    };
+    saveUsers(db);
+    const newToken = generateToken(db.users[userIndex]);
+    res.json({
+      message: "Subscription updated successfully",
+      token: newToken,
+      subscription: db.users[userIndex].subscription
+    });
+  } catch (error) {
+    console.error("Subscription error:", error);
+    res.status(500).json({ error: "Subscription update failed" });
+  }
+});
+router4.post("/cancel-subscription", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+    const token = authHeader.substring(7);
+    const { valid, payload } = verifyToken(token);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    const db = loadUsers();
+    const userIndex = db.users.findIndex((u) => u.id === payload.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    db.users[userIndex].subscription.status = "cancelled";
+    saveUsers(db);
+    res.json({
+      message: "Subscription cancelled. You'll retain access until the end of your billing period.",
+      subscription: db.users[userIndex].subscription
+    });
+  } catch (error) {
+    console.error("Cancel subscription error:", error);
+    res.status(500).json({ error: "Failed to cancel subscription" });
+  }
+});
+router4.get("/anonymous-status", (req, res) => {
+  try {
+    const status = getAnonymousSearchStatus(req);
+    const ip = getClientIP(req);
+    res.json({
+      ...status,
+      ip: ip.substring(0, 8) + "...",
+      // Partial IP for debugging
+      limitPerPeriod: ANONYMOUS_SEARCH_LIMIT
+    });
+  } catch (error) {
+    console.error("Anonymous status error:", error);
+    res.status(500).json({ error: "Failed to get status" });
+  }
+});
+var auth_default = router4;
+
+// src/routes/chat.ts
+var router5 = (0, import_express5.Router)();
 function generateRefinementSuggestions(intent, listingsCount, matchType) {
   const suggestions = [];
   const { propertyType, priceMax, priceMin, location } = intent;
@@ -4825,7 +5226,7 @@ var chatSchema = import_zod3.z.object({
   })).optional().default([]),
   lastSearchContext: import_zod3.z.string().optional()
 });
-router4.post("/chat", async (req, res) => {
+router5.post("/chat", async (req, res) => {
   const requestStart = Date.now();
   const timings = {};
   const parsed = chatSchema.safeParse(req.body);
@@ -4835,6 +5236,23 @@ router4.post("/chat", async (req, res) => {
   const { message, mode, threadId } = parsed.data;
   let { conversationHistory, lastSearchContext } = parsed.data;
   const userLocation = parsed.data.userLocation;
+  const authHeader = req.headers.authorization;
+  const isAuthenticated = authHeader?.startsWith("Bearer ");
+  if (!isAuthenticated) {
+    const fingerprint = req.body.fingerprint;
+    const limitCheck = checkAnonymousSearchLimit(req, fingerprint);
+    if (!limitCheck.allowed) {
+      console.log(`[Chat] Anonymous search limit reached for IP: ${getClientIP(req).substring(0, 8)}...`);
+      return res.status(429).json({
+        type: "limit_reached",
+        message: limitCheck.message,
+        remaining: limitCheck.remaining,
+        total: limitCheck.total,
+        aiAvailable: true
+      });
+    }
+    console.log(`[Chat] Anonymous search ${limitCheck.total - limitCheck.remaining}/${limitCheck.total} for IP: ${getClientIP(req).substring(0, 8)}...`);
+  }
   const conversationId = parsed.data.conversationId || generateConversationId();
   if (threadId) {
     const thread = getThread(threadId);
@@ -5096,7 +5514,7 @@ ${previousContext ? `_Original search: ${previousContext.match(/User searched fo
     return res.status(500).json({ error: String(error) });
   }
 });
-router4.get("/ai/health", async (_req, res) => {
+router5.get("/ai/health", async (_req, res) => {
   const health = await checkAIHealth();
   const currentInfo = getCurrentBackendInfo();
   return res.json({
@@ -5107,7 +5525,7 @@ router4.get("/ai/health", async (_req, res) => {
     localAiUrl: process.env.LOCAL_AI_URL ?? "http://localhost:8080"
   });
 });
-router4.get("/ai/backends", async (_req, res) => {
+router5.get("/ai/backends", async (_req, res) => {
   try {
     const backends = await getAvailableBackends();
     const currentInfo = getCurrentBackendInfo();
@@ -5127,7 +5545,7 @@ var switchBackendSchema = import_zod3.z.object({
   backend: import_zod3.z.enum(["ollama", "groq", "claude", "local"]),
   model: import_zod3.z.string().optional()
 });
-router4.post("/ai/switch", async (req, res) => {
+router5.post("/ai/switch", async (req, res) => {
   try {
     const body = switchBackendSchema.parse(req.body);
     const result = await setActiveBackend(body.backend, body.model);
@@ -5151,14 +5569,14 @@ router4.post("/ai/switch", async (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router4.get("/vision/status", async (_req, res) => {
+router5.get("/vision/status", async (_req, res) => {
   const status = getVisionServiceStatus();
   return res.json(status);
 });
 var analyzeImageSchema = import_zod3.z.object({
   imageUrl: import_zod3.z.string().url()
 });
-router4.post("/vision/analyze-image", async (req, res) => {
+router5.post("/vision/analyze-image", async (req, res) => {
   try {
     const body = analyzeImageSchema.parse(req.body);
     const result = await analyzeImage(body.imageUrl);
@@ -5183,7 +5601,7 @@ var analyzeListingSchema = import_zod3.z.object({
   photoUrls: import_zod3.z.array(import_zod3.z.string().url()),
   maxPhotos: import_zod3.z.number().min(1).max(5).optional()
 });
-router4.post("/vision/analyze-listing", async (req, res) => {
+router5.post("/vision/analyze-listing", async (req, res) => {
   try {
     const body = analyzeListingSchema.parse(req.body);
     const result = await analyzeListingPhotos(
@@ -5210,7 +5628,7 @@ router4.post("/vision/analyze-listing", async (req, res) => {
 var extractFeaturesSchema = import_zod3.z.object({
   query: import_zod3.z.string()
 });
-router4.post("/vision/extract-features", async (req, res) => {
+router5.post("/vision/extract-features", async (req, res) => {
   try {
     const body = extractFeaturesSchema.parse(req.body);
     const features = extractImageFeatureQuery(body.query);
@@ -5227,12 +5645,12 @@ router4.post("/vision/extract-features", async (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-var chat_default = router4;
+var chat_default = router5;
 
 // src/routes/rag.ts
-var import_express5 = require("express");
-var router5 = (0, import_express5.Router)();
-router5.get("/rag/status", async (_req, res) => {
+var import_express6 = require("express");
+var router6 = (0, import_express6.Router)();
+router6.get("/rag/status", async (_req, res) => {
   try {
     const stats = getRAGSystemStats();
     const categories = getCategories();
@@ -5246,7 +5664,7 @@ router5.get("/rag/status", async (_req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router5.post("/rag/initialize", async (_req, res) => {
+router6.post("/rag/initialize", async (_req, res) => {
   try {
     await initializeRAG();
     const stats = getRAGStats();
@@ -5260,7 +5678,7 @@ router5.post("/rag/initialize", async (_req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router5.post("/rag/query", async (req, res) => {
+router6.post("/rag/query", async (req, res) => {
   const { query, topK = 3 } = req.body;
   if (!query || typeof query !== "string") {
     return res.status(400).json({ error: "Query is required" });
@@ -5282,7 +5700,7 @@ router5.post("/rag/query", async (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router5.get("/rag/knowledge", (_req, res) => {
+router6.get("/rag/knowledge", (_req, res) => {
   try {
     const knowledge = getAllKnowledge();
     return res.json({
@@ -5301,7 +5719,7 @@ router5.get("/rag/knowledge", (_req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router5.get("/rag/knowledge/:id", (req, res) => {
+router6.get("/rag/knowledge/:id", (req, res) => {
   try {
     const { id } = req.params;
     const knowledge = getAllKnowledge();
@@ -5315,7 +5733,7 @@ router5.get("/rag/knowledge/:id", (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router5.delete("/rag/clear", async (req, res) => {
+router6.delete("/rag/clear", async (req, res) => {
   const { collection } = req.query;
   try {
     clearRAGData(collection);
@@ -5328,7 +5746,7 @@ router5.delete("/rag/clear", async (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router5.post("/rag/listings/search", async (req, res) => {
+router6.post("/rag/listings/search", async (req, res) => {
   const { query, criteria, limit = 10 } = req.body;
   if (!query && !criteria) {
     return res.status(400).json({ error: "Either query or criteria is required" });
@@ -5363,7 +5781,7 @@ router5.post("/rag/listings/search", async (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router5.get("/rag/listings", async (req, res) => {
+router6.get("/rag/listings", async (req, res) => {
   const { page = 1, limit = 20 } = req.query;
   const pageNum = parseInt(page, 10);
   const limitNum = Math.min(parseInt(limit, 10), 100);
@@ -5392,10 +5810,10 @@ router5.get("/rag/listings", async (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-var rag_default = router5;
+var rag_default = router6;
 
 // src/routes/training.ts
-var import_express6 = require("express");
+var import_express7 = require("express");
 var import_zod4 = require("zod");
 
 // src/services/trainingService.ts
@@ -5657,7 +6075,7 @@ function getAvailableCategories() {
 }
 
 // src/routes/training.ts
-var router6 = (0, import_express6.Router)();
+var router7 = (0, import_express7.Router)();
 var trainSchema = import_zod4.z.object({
   city: import_zod4.z.string().min(1),
   categories: import_zod4.z.array(import_zod4.z.string()).optional(),
@@ -5665,7 +6083,7 @@ var trainSchema = import_zod4.z.object({
   startOffset: import_zod4.z.number().min(0).optional()
   // Continue from a specific offset
 });
-router6.post("/train/olx", async (req, res) => {
+router7.post("/train/olx", async (req, res) => {
   const parsed = trainSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -5692,7 +6110,7 @@ router6.post("/train/olx", async (req, res) => {
     console.error("[Training API] Training error:", error);
   }
 });
-router6.post("/train/olx/sync", async (req, res) => {
+router7.post("/train/olx/sync", async (req, res) => {
   const parsed = trainSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -5724,7 +6142,7 @@ router6.post("/train/olx/sync", async (req, res) => {
     });
   }
 });
-router6.get("/train/progress", (_req, res) => {
+router7.get("/train/progress", (_req, res) => {
   const progress = getTrainingProgress();
   if (!progress) {
     return res.json({
@@ -5734,14 +6152,14 @@ router6.get("/train/progress", (_req, res) => {
   }
   return res.json(progress);
 });
-router6.get("/train/cities", (_req, res) => {
+router7.get("/train/cities", (_req, res) => {
   const cities = getAvailableCities();
   return res.json({
     cities,
     count: cities.length
   });
 });
-router6.get("/train/categories", (_req, res) => {
+router7.get("/train/categories", (_req, res) => {
   const categories = getAvailableCategories();
   return res.json({
     categories,
@@ -5755,12 +6173,12 @@ router6.get("/train/categories", (_req, res) => {
     }
   });
 });
-var training_default = router6;
+var training_default = router7;
 
 // src/routes/agent.ts
-var import_express7 = require("express");
+var import_express8 = require("express");
 var import_zod5 = require("zod");
-var router7 = (0, import_express7.Router)();
+var router8 = (0, import_express8.Router)();
 var agentSchema = import_zod5.z.object({
   query: import_zod5.z.string().min(1),
   userLocation: import_zod5.z.object({
@@ -5771,7 +6189,7 @@ var agentSchema = import_zod5.z.object({
   }),
   maxSteps: import_zod5.z.number().optional().default(5)
 });
-router7.post("/agent", async (req, res) => {
+router8.post("/agent", async (req, res) => {
   const parsed = agentSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -5801,7 +6219,7 @@ router7.post("/agent", async (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router7.post("/agent/check", (req, res) => {
+router8.post("/agent/check", (req, res) => {
   const { query } = req.body;
   if (!query || typeof query !== "string") {
     return res.status(400).json({ error: "Query is required" });
@@ -5813,12 +6231,12 @@ router7.post("/agent/check", (req, res) => {
     reason: useAgent ? "Complex query detected - will use multi-step reasoning" : "Simple query - direct search is sufficient"
   });
 });
-var agent_default = router7;
+var agent_default = router8;
 
 // src/routes/index-listings.ts
-var import_express8 = require("express");
+var import_express9 = require("express");
 var import_zod6 = require("zod");
-var router8 = (0, import_express8.Router)();
+var router9 = (0, import_express9.Router)();
 var OLX_REGIONS3 = {
   aveiro: 1,
   beja: 2,
@@ -5925,7 +6343,7 @@ async function fetchOLXPage2(categoryId, regionId, offset, limit = 40, query) {
     total: data.metadata?.visible_total_count || 0
   };
 }
-router8.get("/stats", async (_req, res) => {
+router9.get("/stats", async (_req, res) => {
   try {
     const store2 = getVectorStore();
     const stats = store2.getStats();
@@ -5954,7 +6372,7 @@ var indexSchema = import_zod6.z.object({
   query: import_zod6.z.string().optional()
   // Search query (e.g., "urbano" for urban land)
 });
-router8.post("/bulk-index", async (req, res) => {
+router9.post("/bulk-index", async (req, res) => {
   const parsed = indexSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -6016,13 +6434,13 @@ router8.post("/bulk-index", async (req, res) => {
     res.status(500).json({ error: String(error) });
   }
 });
-var index_listings_default = router8;
+var index_listings_default = router9;
 
 // src/routes/threads.ts
-var import_express9 = require("express");
-var import_crypto = __toESM(require("crypto"));
-var router9 = (0, import_express9.Router)();
-var JWT_SECRET = process.env.JWT_SECRET || "property-witch-secret-key-change-in-production";
+var import_express10 = require("express");
+var import_crypto2 = __toESM(require("crypto"));
+var router10 = (0, import_express10.Router)();
+var JWT_SECRET2 = process.env.JWT_SECRET || "property-witch-secret-key-change-in-production";
 function getUserIdFromRequest(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
@@ -6031,7 +6449,7 @@ function getUserIdFromRequest(req) {
   try {
     const token = authHeader.substring(7);
     const [payloadB64, signature] = token.split(".");
-    const expectedSignature = import_crypto.default.createHmac("sha256", JWT_SECRET).update(payloadB64).digest("base64url");
+    const expectedSignature = import_crypto2.default.createHmac("sha256", JWT_SECRET2).update(payloadB64).digest("base64url");
     if (signature !== expectedSignature) {
       return null;
     }
@@ -6044,7 +6462,7 @@ function getUserIdFromRequest(req) {
     return null;
   }
 }
-router9.get("/threads", (req, res) => {
+router10.get("/threads", (req, res) => {
   try {
     const userId = getUserIdFromRequest(req);
     const threads2 = getAllThreads(userId);
@@ -6062,7 +6480,7 @@ router9.get("/threads", (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router9.post("/threads", (req, res) => {
+router10.post("/threads", (req, res) => {
   try {
     const userId = getUserIdFromRequest(req);
     const { initialMessage } = req.body;
@@ -6078,7 +6496,7 @@ router9.post("/threads", (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router9.get("/threads/:threadId", (req, res) => {
+router10.get("/threads/:threadId", (req, res) => {
   try {
     const userId = getUserIdFromRequest(req);
     const { threadId } = req.params;
@@ -6095,7 +6513,7 @@ router9.get("/threads/:threadId", (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router9.delete("/threads/:threadId", (req, res) => {
+router10.delete("/threads/:threadId", (req, res) => {
   try {
     const userId = getUserIdFromRequest(req);
     const { threadId } = req.params;
@@ -6116,7 +6534,7 @@ router9.delete("/threads/:threadId", (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router9.patch("/threads/:threadId", (req, res) => {
+router10.patch("/threads/:threadId", (req, res) => {
   try {
     const { threadId } = req.params;
     const { title } = req.body;
@@ -6137,7 +6555,7 @@ router9.patch("/threads/:threadId", (req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-router9.get("/threads-stats", (_req, res) => {
+router10.get("/threads-stats", (_req, res) => {
   try {
     const count = getThreadCount();
     const threads2 = getAllThreads();
@@ -6151,10 +6569,10 @@ router9.get("/threads-stats", (_req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-var threads_default = router9;
+var threads_default = router10;
 
 // src/routes/indexer.ts
-var import_express10 = require("express");
+var import_express11 = require("express");
 
 // src/services/scheduledIndexer.ts
 var LOCATIONS_TO_INDEX = [
@@ -6375,22 +6793,22 @@ async function triggerIndexing() {
 }
 
 // src/routes/indexer.ts
-var router10 = (0, import_express10.Router)();
-router10.get("/indexer/status", (_req, res) => {
+var router11 = (0, import_express11.Router)();
+router11.get("/indexer/status", (_req, res) => {
   const status = getIndexerStatus();
   return res.json(status);
 });
-router10.post("/indexer/start", (_req, res) => {
+router11.post("/indexer/start", (_req, res) => {
   startScheduledIndexer();
   const status = getIndexerStatus();
   return res.json({ message: "Indexer started", ...status });
 });
-router10.post("/indexer/stop", (_req, res) => {
+router11.post("/indexer/stop", (_req, res) => {
   stopScheduledIndexer();
   const status = getIndexerStatus();
   return res.json({ message: "Indexer stopped", ...status });
 });
-router10.post("/indexer/run", async (_req, res) => {
+router11.post("/indexer/run", async (_req, res) => {
   try {
     const result = await triggerIndexing();
     const status = getIndexerStatus();
@@ -6399,312 +6817,7 @@ router10.post("/indexer/run", async (_req, res) => {
     return res.status(500).json({ error: String(error) });
   }
 });
-var indexer_default = router10;
-
-// src/routes/auth.ts
-var import_express11 = require("express");
-var import_crypto2 = __toESM(require("crypto"));
-var import_path = __toESM(require("path"));
-var import_fs = __toESM(require("fs"));
-var router11 = (0, import_express11.Router)();
-var DATA_DIR2 = import_path.default.resolve(process.cwd(), "data");
-var USERS_FILE = import_path.default.join(DATA_DIR2, "users.json");
-if (!import_fs.default.existsSync(DATA_DIR2)) {
-  import_fs.default.mkdirSync(DATA_DIR2, { recursive: true });
-}
-var JWT_SECRET2 = process.env.JWT_SECRET || "property-witch-secret-key-change-in-production";
-var loadUsers = () => {
-  try {
-    if (import_fs.default.existsSync(USERS_FILE)) {
-      return JSON.parse(import_fs.default.readFileSync(USERS_FILE, "utf-8"));
-    }
-  } catch (error) {
-    console.error("Error loading users:", error);
-  }
-  return { users: [] };
-};
-var saveUsers = (db) => {
-  import_fs.default.writeFileSync(USERS_FILE, JSON.stringify(db, null, 2));
-};
-var hashPassword = (password) => {
-  return import_crypto2.default.createHash("sha256").update(password + JWT_SECRET2).digest("hex");
-};
-var generateToken = (user) => {
-  const payload = {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    subscription: user.subscription,
-    iat: Date.now(),
-    exp: Date.now() + 7 * 24 * 60 * 60 * 1e3
-    // 7 days
-  };
-  const base64Payload = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const signature = import_crypto2.default.createHmac("sha256", JWT_SECRET2).update(base64Payload).digest("base64url");
-  return `${base64Payload}.${signature}`;
-};
-var verifyToken = (token) => {
-  try {
-    const [payloadB64, signature] = token.split(".");
-    const expectedSignature = import_crypto2.default.createHmac("sha256", JWT_SECRET2).update(payloadB64).digest("base64url");
-    if (signature !== expectedSignature) {
-      return { valid: false };
-    }
-    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
-    if (payload.exp < Date.now()) {
-      return { valid: false };
-    }
-    return { valid: true, payload };
-  } catch {
-    return { valid: false };
-  }
-};
-var SUBSCRIPTION_PLANS = {
-  free: {
-    name: "Free",
-    price: 0,
-    priceId: null,
-    features: [
-      "5 property searches per month",
-      "Basic AI assistance",
-      "Save up to 10 properties"
-    ],
-    searchLimit: 5,
-    savedPropertiesLimit: 10
-  },
-  starter: {
-    name: "Starter",
-    price: 9.99,
-    priceId: process.env.STRIPE_STARTER_PRICE_ID || "price_starter",
-    features: [
-      "50 property searches per month",
-      "Enhanced AI assistance",
-      "Save up to 100 properties",
-      "Email notifications",
-      "PDF reports"
-    ],
-    searchLimit: 50,
-    savedPropertiesLimit: 100
-  },
-  pro: {
-    name: "Professional",
-    price: 24.99,
-    priceId: process.env.STRIPE_PRO_PRICE_ID || "price_pro",
-    features: [
-      "Unlimited property searches",
-      "Priority AI assistance",
-      "Unlimited saved properties",
-      "Real-time alerts",
-      "Advanced analytics",
-      "API access"
-    ],
-    searchLimit: -1,
-    // unlimited
-    savedPropertiesLimit: -1
-  },
-  enterprise: {
-    name: "Enterprise",
-    price: 99.99,
-    priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || "price_enterprise",
-    features: [
-      "Everything in Professional",
-      "White-label options",
-      "Dedicated support",
-      "Custom integrations",
-      "Team accounts",
-      "SLA guarantee"
-    ],
-    searchLimit: -1,
-    savedPropertiesLimit: -1
-  }
-};
-router11.post("/register", async (req, res) => {
-  try {
-    const { email, password, name } = req.body;
-    if (!email || !password || !name) {
-      return res.status(400).json({ error: "Email, password, and name are required" });
-    }
-    if (password.length < 8) {
-      return res.status(400).json({ error: "Password must be at least 8 characters" });
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: "Invalid email format" });
-    }
-    const db = loadUsers();
-    if (db.users.find((u) => u.email.toLowerCase() === email.toLowerCase())) {
-      return res.status(409).json({ error: "Email already registered" });
-    }
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const newUser = {
-      id: import_crypto2.default.randomUUID(),
-      email: email.toLowerCase(),
-      passwordHash: hashPassword(password),
-      name,
-      createdAt: now,
-      subscription: {
-        plan: "free",
-        status: "active",
-        expiresAt: null
-      },
-      searchesThisMonth: 0,
-      lastSearchReset: now
-    };
-    db.users.push(newUser);
-    saveUsers(db);
-    const token = generateToken(newUser);
-    res.status(201).json({
-      message: "Registration successful",
-      token,
-      user: {
-        id: newUser.id,
-        email: newUser.email,
-        name: newUser.name,
-        subscription: newUser.subscription
-      }
-    });
-  } catch (error) {
-    console.error("Registration error:", error);
-    res.status(500).json({ error: "Registration failed" });
-  }
-});
-router11.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
-    }
-    const db = loadUsers();
-    const user = db.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (!user || user.passwordHash !== hashPassword(password)) {
-      return res.status(401).json({ error: "Invalid email or password" });
-    }
-    const token = generateToken(user);
-    res.json({
-      message: "Login successful",
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        subscription: user.subscription,
-        searchesThisMonth: user.searchesThisMonth
-      }
-    });
-  } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({ error: "Login failed" });
-  }
-});
-router11.get("/me", async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "No token provided" });
-    }
-    const token = authHeader.substring(7);
-    const { valid, payload } = verifyToken(token);
-    if (!valid) {
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
-    const db = loadUsers();
-    const user = db.users.find((u) => u.id === payload.id);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    const now = /* @__PURE__ */ new Date();
-    const lastReset = new Date(user.lastSearchReset);
-    if (now.getMonth() !== lastReset.getMonth() || now.getFullYear() !== lastReset.getFullYear()) {
-      user.searchesThisMonth = 0;
-      user.lastSearchReset = now.toISOString();
-      saveUsers(db);
-    }
-    res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        subscription: user.subscription,
-        searchesThisMonth: user.searchesThisMonth,
-        createdAt: user.createdAt
-      }
-    });
-  } catch (error) {
-    console.error("Auth check error:", error);
-    res.status(500).json({ error: "Authentication check failed" });
-  }
-});
-router11.get("/plans", (_req, res) => {
-  res.json({ plans: SUBSCRIPTION_PLANS });
-});
-router11.post("/subscribe", async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "No token provided" });
-    }
-    const token = authHeader.substring(7);
-    const { valid, payload } = verifyToken(token);
-    if (!valid) {
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
-    const { plan, paymentMethodId } = req.body;
-    if (!plan || !["free", "starter", "pro", "enterprise"].includes(plan)) {
-      return res.status(400).json({ error: "Invalid plan" });
-    }
-    const db = loadUsers();
-    const userIndex = db.users.findIndex((u) => u.id === payload.id);
-    if (userIndex === -1) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    const expiresAt = plan === "free" ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3).toISOString();
-    db.users[userIndex].subscription = {
-      plan,
-      status: "active",
-      expiresAt,
-      stripeCustomerId: paymentMethodId ? `cus_demo_${payload.id}` : void 0,
-      stripeSubscriptionId: paymentMethodId ? `sub_demo_${Date.now()}` : void 0
-    };
-    saveUsers(db);
-    const newToken = generateToken(db.users[userIndex]);
-    res.json({
-      message: "Subscription updated successfully",
-      token: newToken,
-      subscription: db.users[userIndex].subscription
-    });
-  } catch (error) {
-    console.error("Subscription error:", error);
-    res.status(500).json({ error: "Subscription update failed" });
-  }
-});
-router11.post("/cancel-subscription", async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "No token provided" });
-    }
-    const token = authHeader.substring(7);
-    const { valid, payload } = verifyToken(token);
-    if (!valid) {
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
-    const db = loadUsers();
-    const userIndex = db.users.findIndex((u) => u.id === payload.id);
-    if (userIndex === -1) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    db.users[userIndex].subscription.status = "cancelled";
-    saveUsers(db);
-    res.json({
-      message: "Subscription cancelled. You'll retain access until the end of your billing period.",
-      subscription: db.users[userIndex].subscription
-    });
-  } catch (error) {
-    console.error("Cancel subscription error:", error);
-    res.status(500).json({ error: "Failed to cancel subscription" });
-  }
-});
-var auth_default = router11;
+var indexer_default = router11;
 
 // src/index.ts
 var app = (0, import_express12.default)();

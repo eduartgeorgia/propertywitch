@@ -39,6 +39,140 @@ interface UsersDB {
   users: User[];
 }
 
+// Anonymous IP tracking for search limits
+const IP_TRACKING_FILE = path.join(DATA_DIR, "ip-tracking.json");
+const ANONYMOUS_SEARCH_LIMIT = 5;
+
+interface IPTrackingEntry {
+  ip: string;
+  fingerprint?: string; // Browser fingerprint for additional validation
+  searchCount: number;
+  firstSearchAt: string;
+  lastSearchAt: string;
+  blocked: boolean;
+}
+
+interface IPTrackingDB {
+  entries: IPTrackingEntry[];
+}
+
+// Load IP tracking data
+const loadIPTracking = (): IPTrackingDB => {
+  try {
+    if (fs.existsSync(IP_TRACKING_FILE)) {
+      return JSON.parse(fs.readFileSync(IP_TRACKING_FILE, "utf-8"));
+    }
+  } catch (error) {
+    console.error("Error loading IP tracking:", error);
+  }
+  return { entries: [] };
+};
+
+// Save IP tracking data
+const saveIPTracking = (db: IPTrackingDB): void => {
+  fs.writeFileSync(IP_TRACKING_FILE, JSON.stringify(db, null, 2));
+};
+
+// Get client IP from request (handles proxies)
+export const getClientIP = (req: Request): string => {
+  // Check various headers that might contain the real IP
+  const forwardedFor = req.headers["x-forwarded-for"];
+  if (forwardedFor) {
+    // x-forwarded-for can contain multiple IPs, take the first one (original client)
+    const ips = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor).split(",");
+    return ips[0].trim();
+  }
+  
+  const realIP = req.headers["x-real-ip"];
+  if (realIP) {
+    return Array.isArray(realIP) ? realIP[0] : realIP;
+  }
+  
+  // Fallback to connection remote address
+  return req.socket?.remoteAddress || req.ip || "unknown";
+};
+
+// Check and increment anonymous search count
+export const checkAnonymousSearchLimit = (req: Request, fingerprint?: string): {
+  allowed: boolean;
+  remaining: number;
+  total: number;
+  message?: string;
+} => {
+  const ip = getClientIP(req);
+  const db = loadIPTracking();
+  
+  let entry = db.entries.find(e => e.ip === ip);
+  
+  if (!entry) {
+    // New IP, create entry
+    entry = {
+      ip,
+      fingerprint,
+      searchCount: 0,
+      firstSearchAt: new Date().toISOString(),
+      lastSearchAt: new Date().toISOString(),
+      blocked: false,
+    };
+    db.entries.push(entry);
+  }
+  
+  // Update fingerprint if provided and different
+  if (fingerprint && entry.fingerprint !== fingerprint) {
+    entry.fingerprint = fingerprint;
+  }
+  
+  // Check if blocked
+  if (entry.blocked) {
+    return {
+      allowed: false,
+      remaining: 0,
+      total: ANONYMOUS_SEARCH_LIMIT,
+      message: "This IP has been blocked. Please sign up for an account.",
+    };
+  }
+  
+  // Check limit
+  if (entry.searchCount >= ANONYMOUS_SEARCH_LIMIT) {
+    return {
+      allowed: false,
+      remaining: 0,
+      total: ANONYMOUS_SEARCH_LIMIT,
+      message: "Free search limit reached. Please sign up for an account to continue.",
+    };
+  }
+  
+  // Increment count
+  entry.searchCount++;
+  entry.lastSearchAt = new Date().toISOString();
+  saveIPTracking(db);
+  
+  return {
+    allowed: true,
+    remaining: ANONYMOUS_SEARCH_LIMIT - entry.searchCount,
+    total: ANONYMOUS_SEARCH_LIMIT,
+  };
+};
+
+// Get anonymous search status without incrementing
+export const getAnonymousSearchStatus = (req: Request): {
+  remaining: number;
+  total: number;
+  used: number;
+} => {
+  const ip = getClientIP(req);
+  const db = loadIPTracking();
+  
+  const entry = db.entries.find(e => e.ip === ip);
+  const used = entry?.searchCount || 0;
+  
+  return {
+    remaining: Math.max(0, ANONYMOUS_SEARCH_LIMIT - used),
+    total: ANONYMOUS_SEARCH_LIMIT,
+    used,
+  };
+};
+
 // Load users from file
 const loadUsers = (): UsersDB => {
   try {
@@ -409,6 +543,22 @@ router.post("/cancel-subscription", async (req: Request, res: Response) => {
   }
 });
 
+// Get anonymous search status (for non-logged-in users)
+router.get("/anonymous-status", (req: Request, res: Response) => {
+  try {
+    const status = getAnonymousSearchStatus(req);
+    const ip = getClientIP(req);
+    
+    res.json({
+      ...status,
+      ip: ip.substring(0, 8) + "...", // Partial IP for debugging
+      limitPerPeriod: ANONYMOUS_SEARCH_LIMIT,
+    });
+  } catch (error) {
+    console.error("Anonymous status error:", error);
+    res.status(500).json({ error: "Failed to get status" });
+  }
+});
 // Increment search count (called by search route)
 export const incrementSearchCount = (userId: string): { allowed: boolean; remaining: number } => {
   const db = loadUsers();

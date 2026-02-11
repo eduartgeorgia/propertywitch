@@ -155,6 +155,11 @@ const App = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   
+  // Anonymous search limit (server-validated, 5 free prompts for non-logged-in users)
+  const [anonymousSearchLimit, setAnonymousSearchLimit] = useState(5);
+  const [anonymousSearchesUsed, setAnonymousSearchesUsed] = useState(0);
+  const [anonymousSearchesRemaining, setAnonymousSearchesRemaining] = useState(5);
+  
   // Chat threads state
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
@@ -606,6 +611,29 @@ const App = () => {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [quickLookListing]);
 
+  // Fetch anonymous search status from server
+  const fetchAnonymousStatus = useCallback(async () => {
+    if (user) return; // Don't fetch if logged in
+    try {
+      const response = await fetchWithRetry("/api/auth/anonymous-status", {}, 2, 1000);
+      if (response.ok) {
+        const data = await response.json();
+        setAnonymousSearchLimit(data.total);
+        setAnonymousSearchesUsed(data.used);
+        setAnonymousSearchesRemaining(data.remaining);
+      }
+    } catch (error) {
+      console.error("Failed to fetch anonymous status:", error);
+    }
+  }, [user]);
+
+  // Fetch anonymous status on mount and when user changes
+  useEffect(() => {
+    if (!user) {
+      fetchAnonymousStatus();
+    }
+  }, [user, fetchAnonymousStatus]);
+
   // Initialize auth from localStorage
   useEffect(() => {
     const initAuth = async () => {
@@ -674,6 +702,22 @@ const App = () => {
   const handleSearch = async () => {
     if (!query.trim()) return;
     
+    // Client-side check for anonymous users (server will validate too)
+    if (!user && anonymousSearchesRemaining <= 0) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", text: query },
+        {
+          role: "assistant",
+          text: "🔒 **Free Search Limit Reached**\n\nYou've used all 5 free searches. Create a free account to continue searching and unlock more features!\n\n• **Free Account**: 5 searches per month\n• **Starter Plan**: 50 searches/month for just €9.99\n• **Pro Plan**: Unlimited searches for €24.99/month\n\n_Click the Sign Up button above to get started!_",
+          type: "chat",
+        },
+      ]);
+      setQuery("");
+      setShowAuthModal(true);
+      return;
+    }
+    
     // Capture the message and clear input immediately
     const userMessage = query;
     setQuery("");
@@ -737,6 +781,24 @@ const App = () => {
         1000
       );
       
+      // Handle 429 (rate limit) from server for anonymous users
+      if (response.status === 429) {
+        const limitData = await response.json();
+        setAnonymousSearchesRemaining(limitData.remaining || 0);
+        setAnonymousSearchesUsed(limitData.total - (limitData.remaining || 0));
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: `🔒 **Free Search Limit Reached**\n\n${limitData.message || "You've used all your free searches."}\n\n• **Free Account**: 5 searches per month\n• **Starter Plan**: 50 searches/month for just €9.99\n• **Pro Plan**: Unlimited searches for €24.99/month\n\n_Click the Sign Up button above to get started!_`,
+            type: "chat",
+          },
+        ]);
+        setIsLoading(false);
+        setShowAuthModal(true);
+        return;
+      }
+      
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Server error: ${response.status} - ${errorText}`);
@@ -746,6 +808,11 @@ const App = () => {
 
       // Update AI availability status
       setAiAvailable(data.aiAvailable);
+      
+      // Refresh anonymous search status after successful request (for non-logged-in users)
+      if (!user) {
+        fetchAnonymousStatus();
+      }
 
       // Store search context if available
       if (data.searchContext) {
@@ -1244,6 +1311,20 @@ const App = () => {
               </button>
             )}
           </div>
+          
+          {/* Show remaining searches for anonymous users */}
+          {!user && (
+            <div className="anonymous-search-limit">
+              <span className={anonymousSearchesRemaining <= 0 ? 'limit-reached' : ''}>
+                {anonymousSearchesRemaining <= 0 
+                  ? '🔒 Free limit reached' 
+                  : `${anonymousSearchesRemaining} free searches remaining`}
+              </span>
+              <button onClick={() => setShowAuthModal(true)} className="sign-up-cta">
+                {anonymousSearchesRemaining <= 0 ? 'Sign up to continue' : 'Sign up for more'}
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="panel results">
