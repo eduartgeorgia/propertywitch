@@ -25,6 +25,9 @@ import {
   storeSearchResults,
   getLastSearchResults,
   getPreviousSearchResults,
+  addShownListingIds,
+  getShownListingIds,
+  clearShownListingIds,
 } from "../services/threadService";
 import {
   analyzeImage,
@@ -210,8 +213,9 @@ router.post("/chat", async (req, res) => {
 
     // Determine intent - either use specified mode or auto-detect
     let shouldSearch = mode === "search";
-    let intentType: "search" | "conversation" | "follow_up" | "refine_search" | "show_listings" | "pick_from_results" = "search";
+    let intentType: "search" | "conversation" | "follow_up" | "refine_search" | "show_listings" | "pick_from_results" | "more_results" = "search";
     let confirmationContext: string | undefined;
+    let wantsMoreResults = false; // Flag for "more results" - same search, different listings
     
     // Variables to store AI-extracted filters
     let extractedFilters: {
@@ -241,8 +245,15 @@ router.post("/chat", async (req, res) => {
         console.log(`[Chat] Extracted filters:`, extractedFilters);
       }
       
-      // Trigger search for: search, refine_search, OR show_listings intents (but NOT pick_from_results - handled separately)
-      shouldSearch = (intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings") && intent.intent !== "pick_from_results";
+      // Check if user wants more/different results with the same criteria
+      if (intent.intent === "more_results") {
+        wantsMoreResults = true;
+        shouldSearch = true;
+        console.log(`[Chat] User wants more results - will exclude previously shown listings`);
+      } else {
+        // Trigger search for: search, refine_search, OR show_listings intents (but NOT pick_from_results - handled separately)
+        shouldSearch = (intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings") && intent.intent !== "pick_from_results";
+      }
     } else if (mode === "chat") {
       shouldSearch = false;
       intentType = "conversation";
@@ -409,8 +420,16 @@ router.post("/chat", async (req, res) => {
     // Check if this is a confirmation response (yes, sure, etc.)
     const isConfirmation = /^(yes|yeah|yep|yup|sure|please|ok|okay|go ahead|do it|definitely|absolutely|of course|please do|yes please)\.?$/i.test(message.trim());
     
+    // Handle "more_results" intent - re-use original search, exclude shown listings
+    if (wantsMoreResults && lastSearchContext && threadId) {
+      const originalQueryMatch = lastSearchContext.match(/User searched for: "([^"]+)"/);
+      if (originalQueryMatch) {
+        searchQuery = originalQueryMatch[1];
+        console.log(`[Chat] more_results: Re-running search for "${searchQuery}" (will exclude previously shown)`);
+      }
+    }
     // For show_listings or refine_search intents, extract the original query from context
-    if ((intentType === "show_listings" || intentType === "refine_search") && lastSearchContext) {
+    else if ((intentType === "show_listings" || intentType === "refine_search") && lastSearchContext) {
       // Extract original query from context like: 'User searched for: "gaia porto properties".'
       const originalQueryMatch = lastSearchContext.match(/User searched for: "([^"]+)"/);
       if (originalQueryMatch) {
@@ -455,11 +474,55 @@ router.post("/chat", async (req, res) => {
 
     // Perform search
     t0 = Date.now();
-    const searchResult = await runSearch({
+    let searchResult = await runSearch({
       query: searchQuery,
       userLocation,
     });
     timings.search = Date.now() - t0;
+
+    // For "more_results" intent, filter out previously shown listings
+    if (wantsMoreResults && threadId) {
+      const shownIds = getShownListingIds(threadId);
+      if (shownIds.length > 0) {
+        const originalCount = searchResult.listings.length;
+        searchResult.listings = searchResult.listings.filter(
+          listing => !shownIds.includes(listing.id)
+        );
+        console.log(`[Chat] Filtered out ${originalCount - searchResult.listings.length} previously shown listings, ${searchResult.listings.length} remaining`);
+        
+        // Update total count
+        searchResult.totalCount = searchResult.listings.length;
+        
+        // If no new results, let the user know
+        if (searchResult.listings.length === 0) {
+          const noMoreMsg = "🔍 I've shown you all the available listings matching your criteria. Would you like to:\n• **Expand your budget** to see more options\n• **Try a different location**\n• **Start a new search** with different criteria";
+          
+          if (threadId) {
+            addMessage(threadId, "assistant", noMoreMsg, "chat");
+          }
+          
+          timings.total = Date.now() - requestStart;
+          return res.json({
+            type: "chat",
+            intentDetected: "more_results",
+            message: noMoreMsg,
+            threadId,
+            aiAvailable: health.available,
+            aiBackend: health.backend,
+            _timings: timings,
+          });
+        }
+      }
+    } else if (!wantsMoreResults && threadId && intentType === "search") {
+      // For new searches, clear the shown listing IDs
+      clearShownListingIds(threadId);
+    }
+
+    // Track shown listing IDs for "more results" feature
+    if (threadId && searchResult.listings.length > 0) {
+      const newIds = searchResult.listings.map(l => l.id);
+      addShownListingIds(threadId, newIds);
+    }
 
     // Generate response about results
     const locations = [...new Set(searchResult.listings.map((l) => l.locationLabel))];
@@ -470,6 +533,14 @@ router.post("/chat", async (req, res) => {
     if (intentType === "show_listings") {
       aiSummary = await generateResultsResponse(
         `showing listings from previous search`,
+        searchResult.matchType,
+        searchResult.listings.length,
+        searchResult.appliedPriceRange,
+        locations
+      );
+    } else if (wantsMoreResults) {
+      aiSummary = await generateResultsResponse(
+        `showing different/additional listings`,
         searchResult.matchType,
         searchResult.listings.length,
         searchResult.appliedPriceRange,

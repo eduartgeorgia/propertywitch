@@ -1046,14 +1046,24 @@ const App = () => {
       <aside className={`threads-sidebar ${showSidebar ? 'open' : ''}`}>
         <div className="sidebar-header">
           <h3>💬 Chats</h3>
-          <button 
-            className="new-chat-btn"
-            onClick={createNewThread}
-            disabled={loadingThreads}
-            title="Start a new chat"
-          >
-            + New Chat
-          </button>
+          <div className="sidebar-header-actions">
+            <button 
+              className="new-chat-btn"
+              onClick={createNewThread}
+              disabled={loadingThreads}
+              title="Start a new chat"
+            >
+              <span className="btn-icon">+</span>
+              <span className="btn-text">New</span>
+            </button>
+            <button 
+              className="collapse-sidebar-btn"
+              onClick={() => setShowSidebar(false)}
+              title="Hide sidebar"
+            >
+              ✕
+            </button>
+          </div>
         </div>
         <div className="threads-list">
           {threads.map((thread) => (
@@ -1086,23 +1096,16 @@ const App = () => {
             <p className="no-threads">No chat history yet</p>
           )}
         </div>
-        <button 
-          className="toggle-sidebar-btn inside"
-          onClick={() => setShowSidebar(false)}
-          title="Hide sidebar"
-        >
-          ◀
-        </button>
       </aside>
       
-      {/* Toggle button when sidebar is hidden */}
+      {/* Minimal sidebar toggle when hidden */}
       {!showSidebar && (
         <button 
-          className="toggle-sidebar-btn outside"
+          className="sidebar-toggle-pill"
           onClick={() => setShowSidebar(true)}
           title="Show chat history"
         >
-          💬
+          <span className="toggle-icon">☰</span>
         </button>
       )}
       

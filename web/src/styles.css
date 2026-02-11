@@ -59,39 +59,83 @@ body {
 }
 
 .sidebar-header {
-  padding: 20px;
+  padding: 16px 16px 16px 20px;
   border-bottom: 1px solid var(--clay);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background: linear-gradient(135deg, rgba(47, 74, 58, 0.03), transparent);
 }
 
 .sidebar-header h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--forest);
+}
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .new-chat-btn {
   background: var(--forest);
   color: var(--white);
   border: none;
-  padding: 8px 16px;
-  border-radius: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.new-chat-btn .btn-icon {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.new-chat-btn .btn-text {
+  font-size: 12px;
 }
 
 .new-chat-btn:hover {
   background: var(--ember);
   transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(184, 107, 75, 0.3);
 }
 
 .new-chat-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.collapse-sidebar-btn {
+  background: transparent;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--ink);
+  opacity: 0.5;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.collapse-sidebar-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .threads-list {
@@ -166,40 +210,34 @@ body {
   padding: 20px;
 }
 
-.toggle-sidebar-btn {
+/* Sidebar Toggle Pill - minimal when collapsed */
+.sidebar-toggle-pill {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  width: 36px;
+  height: 36px;
   background: var(--white);
   border: 1px solid var(--clay);
-  font-size: 16px;
+  border-radius: 8px;
   cursor: pointer;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   transition: all 0.2s;
 }
 
-.toggle-sidebar-btn.inside {
-  position: absolute;
-  right: -12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 24px;
-  height: 48px;
-  border-radius: 0 8px 8px 0;
-  box-shadow: 2px 0 8px rgba(0,0,0,0.1);
-}
-
-.toggle-sidebar-btn.outside {
-  position: fixed;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
-  z-index: 99;
-}
-
-.toggle-sidebar-btn:hover {
+.sidebar-toggle-pill:hover {
   background: var(--mint);
   border-color: var(--forest);
+  transform: scale(1.05);
+}
+
+.sidebar-toggle-pill .toggle-icon {
+  font-size: 16px;
+  color: var(--forest);
 }
 
 /* End Sidebar Styles */

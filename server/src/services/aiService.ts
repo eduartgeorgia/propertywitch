@@ -696,7 +696,7 @@ Write a brief, helpful response (2-3 sentences) about these results. Be conversa
  * AI-Powered Intent Detection
  * Uses the AI to understand user intent naturally from context
  */
-export type UserIntent = "search" | "conversation" | "follow_up" | "refine_search" | "show_listings" | "pick_from_results";
+export type UserIntent = "search" | "conversation" | "follow_up" | "refine_search" | "show_listings" | "pick_from_results" | "more_results";
 
 export type AIIntentResult = {
   intent: UserIntent;
@@ -726,12 +726,15 @@ Analyze the user's message IN CONTEXT of the conversation to determine their int
 POSSIBLE INTENTS:
 1. "search" - User wants to find NEW properties (new search query with specific criteria)
 2. "refine_search" - User wants to MODIFY their previous search (add filters, change location, adjust price)
-3. "pick_from_results" - User wants to SELECT/FILTER from EXISTING results (pick best, closest, cheapest, narrow down, filter by size)
-4. "conversation" - User wants INFORMATION about buying process, taxes, laws, regions, or general chat
-5. "follow_up" - User is asking about or referring to previous search results
-6. "show_listings" - User wants to see/display the current results again
+3. "more_results" - User wants DIFFERENT/MORE properties with SAME criteria (e.g., "show me more", "different options", "other listings", "what else", "any other options")
+4. "pick_from_results" - User wants to SELECT/FILTER from EXISTING results (pick best, closest, cheapest, narrow down, filter by size)
+5. "conversation" - User wants INFORMATION about buying process, taxes, laws, regions, or general chat
+6. "follow_up" - User is asking about or referring to previous search results
+7. "show_listings" - User wants to see/display the current results again
 
 CRITICAL RULES:
+- "show me different options", "other properties", "what else do you have", "more options", "any alternatives" → "more_results"
+- "more results", "show more", "give me more", "different ones" → "more_results"
 - If user mentions m², m2, sqm, "square meters", "hectares" → this is about LAND SIZE (area), NOT price
 - "narrow down within 1000 m2" means filter by AREA SIZE, not price
 - "1000 euros" or "€1000" is PRICE, "1000 m2" is AREA
@@ -756,7 +759,7 @@ IMAGE/VISUAL FEATURES - Extract these when user asks for properties with specifi
 
 Respond with ONLY valid JSON:
 {
-  "intent": "search" | "refine_search" | "pick_from_results" | "conversation" | "follow_up" | "show_listings",
+  "intent": "search" | "refine_search" | "more_results" | "pick_from_results" | "conversation" | "follow_up" | "show_listings",
   "isPropertySearch": true/false,
   "confidence": 0.0-1.0,
   "reason": "brief explanation of why you chose this intent",

@@ -22,6 +22,7 @@ export type ChatThread = {
   lastSearchResults?: any[]; // Store actual listing data for pick/select queries
   previousSearchResults?: any[]; // Store ONE previous search (for "go back" feature)
   previousSearchContext?: string; // Context of the previous search
+  shownListingIds?: string[]; // Track IDs of listings already shown (for "more results")
 };
 
 // In-memory storage for threads (in production, use a database)
@@ -196,6 +197,44 @@ export function getPreviousSearchResults(threadId: string): { listings: any[] | 
     listings: thread?.previousSearchResults || null,
     context: thread?.previousSearchContext || null,
   };
+}
+
+/**
+ * Track shown listing IDs for "more results" feature
+ */
+export function addShownListingIds(threadId: string, listingIds: string[]): void {
+  const thread = threads.get(threadId);
+  if (thread) {
+    if (!thread.shownListingIds) {
+      thread.shownListingIds = [];
+    }
+    // Add unique IDs only
+    for (const id of listingIds) {
+      if (!thread.shownListingIds.includes(id)) {
+        thread.shownListingIds.push(id);
+      }
+    }
+    console.log(`[Threads] Now tracking ${thread.shownListingIds.length} shown listing IDs in thread ${threadId}`);
+  }
+}
+
+/**
+ * Get shown listing IDs for exclusion in "more results" searches
+ */
+export function getShownListingIds(threadId: string): string[] {
+  const thread = threads.get(threadId);
+  return thread?.shownListingIds || [];
+}
+
+/**
+ * Clear shown listing IDs (when starting a completely new search)
+ */
+export function clearShownListingIds(threadId: string): void {
+  const thread = threads.get(threadId);
+  if (thread) {
+    thread.shownListingIds = [];
+    console.log(`[Threads] Cleared shown listing IDs for thread ${threadId}`);
+  }
 }
 
 /**

@@ -2506,12 +2506,15 @@ Analyze the user's message IN CONTEXT of the conversation to determine their int
 POSSIBLE INTENTS:
 1. "search" - User wants to find NEW properties (new search query with specific criteria)
 2. "refine_search" - User wants to MODIFY their previous search (add filters, change location, adjust price)
-3. "pick_from_results" - User wants to SELECT/FILTER from EXISTING results (pick best, closest, cheapest, narrow down, filter by size)
-4. "conversation" - User wants INFORMATION about buying process, taxes, laws, regions, or general chat
-5. "follow_up" - User is asking about or referring to previous search results
-6. "show_listings" - User wants to see/display the current results again
+3. "more_results" - User wants DIFFERENT/MORE properties with SAME criteria (e.g., "show me more", "different options", "other listings", "what else", "any other options")
+4. "pick_from_results" - User wants to SELECT/FILTER from EXISTING results (pick best, closest, cheapest, narrow down, filter by size)
+5. "conversation" - User wants INFORMATION about buying process, taxes, laws, regions, or general chat
+6. "follow_up" - User is asking about or referring to previous search results
+7. "show_listings" - User wants to see/display the current results again
 
 CRITICAL RULES:
+- "show me different options", "other properties", "what else do you have", "more options", "any alternatives" \u2192 "more_results"
+- "more results", "show more", "give me more", "different ones" \u2192 "more_results"
 - If user mentions m\xB2, m2, sqm, "square meters", "hectares" \u2192 this is about LAND SIZE (area), NOT price
 - "narrow down within 1000 m2" means filter by AREA SIZE, not price
 - "1000 euros" or "\u20AC1000" is PRICE, "1000 m2" is AREA
@@ -2536,7 +2539,7 @@ IMAGE/VISUAL FEATURES - Extract these when user asks for properties with specifi
 
 Respond with ONLY valid JSON:
 {
-  "intent": "search" | "refine_search" | "pick_from_results" | "conversation" | "follow_up" | "show_listings",
+  "intent": "search" | "refine_search" | "more_results" | "pick_from_results" | "conversation" | "follow_up" | "show_listings",
   "isPropertySearch": true/false,
   "confidence": 0.0-1.0,
   "reason": "brief explanation of why you chose this intent",
@@ -4751,6 +4754,31 @@ function getPreviousSearchResults(threadId) {
     context: thread?.previousSearchContext || null
   };
 }
+function addShownListingIds(threadId, listingIds) {
+  const thread = threads.get(threadId);
+  if (thread) {
+    if (!thread.shownListingIds) {
+      thread.shownListingIds = [];
+    }
+    for (const id of listingIds) {
+      if (!thread.shownListingIds.includes(id)) {
+        thread.shownListingIds.push(id);
+      }
+    }
+    console.log(`[Threads] Now tracking ${thread.shownListingIds.length} shown listing IDs in thread ${threadId}`);
+  }
+}
+function getShownListingIds(threadId) {
+  const thread = threads.get(threadId);
+  return thread?.shownListingIds || [];
+}
+function clearShownListingIds(threadId) {
+  const thread = threads.get(threadId);
+  if (thread) {
+    thread.shownListingIds = [];
+    console.log(`[Threads] Cleared shown listing IDs for thread ${threadId}`);
+  }
+}
 function deleteThread(threadId) {
   return threads.delete(threadId);
 }
@@ -5337,6 +5365,7 @@ router5.post("/chat", async (req, res) => {
     let shouldSearch = mode === "search";
     let intentType = "search";
     let confirmationContext;
+    let wantsMoreResults = false;
     let extractedFilters;
     let selectionCriteria;
     if (mode === "auto") {
@@ -5352,7 +5381,13 @@ router5.post("/chat", async (req, res) => {
       if (extractedFilters) {
         console.log(`[Chat] Extracted filters:`, extractedFilters);
       }
-      shouldSearch = (intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings") && intent.intent !== "pick_from_results";
+      if (intent.intent === "more_results") {
+        wantsMoreResults = true;
+        shouldSearch = true;
+        console.log(`[Chat] User wants more results - will exclude previously shown listings`);
+      } else {
+        shouldSearch = (intent.isPropertySearch || intent.intent === "search" || intent.intent === "refine_search" || intent.intent === "show_listings") && intent.intent !== "pick_from_results";
+      }
     } else if (mode === "chat") {
       shouldSearch = false;
       intentType = "conversation";
@@ -5485,7 +5520,13 @@ ${previousContext ? `_Original search: ${previousContext.match(/User searched fo
     }
     let searchQuery = message;
     const isConfirmation = /^(yes|yeah|yep|yup|sure|please|ok|okay|go ahead|do it|definitely|absolutely|of course|please do|yes please)\.?$/i.test(message.trim());
-    if ((intentType === "show_listings" || intentType === "refine_search") && lastSearchContext) {
+    if (wantsMoreResults && lastSearchContext && threadId) {
+      const originalQueryMatch = lastSearchContext.match(/User searched for: "([^"]+)"/);
+      if (originalQueryMatch) {
+        searchQuery = originalQueryMatch[1];
+        console.log(`[Chat] more_results: Re-running search for "${searchQuery}" (will exclude previously shown)`);
+      }
+    } else if ((intentType === "show_listings" || intentType === "refine_search") && lastSearchContext) {
       const originalQueryMatch = lastSearchContext.match(/User searched for: "([^"]+)"/);
       if (originalQueryMatch) {
         const originalQuery = originalQueryMatch[1];
@@ -5519,17 +5560,58 @@ ${previousContext ? `_Original search: ${previousContext.match(/User searched fo
     const aiResponse = await parseQueryWithAI(searchQuery);
     timings.parseQuery = Date.now() - t0;
     t0 = Date.now();
-    const searchResult = await runSearch({
+    let searchResult = await runSearch({
       query: searchQuery,
       userLocation
     });
     timings.search = Date.now() - t0;
+    if (wantsMoreResults && threadId) {
+      const shownIds = getShownListingIds(threadId);
+      if (shownIds.length > 0) {
+        const originalCount = searchResult.listings.length;
+        searchResult.listings = searchResult.listings.filter(
+          (listing) => !shownIds.includes(listing.id)
+        );
+        console.log(`[Chat] Filtered out ${originalCount - searchResult.listings.length} previously shown listings, ${searchResult.listings.length} remaining`);
+        searchResult.totalCount = searchResult.listings.length;
+        if (searchResult.listings.length === 0) {
+          const noMoreMsg = "\u{1F50D} I've shown you all the available listings matching your criteria. Would you like to:\n\u2022 **Expand your budget** to see more options\n\u2022 **Try a different location**\n\u2022 **Start a new search** with different criteria";
+          if (threadId) {
+            addMessage(threadId, "assistant", noMoreMsg, "chat");
+          }
+          timings.total = Date.now() - requestStart;
+          return res.json({
+            type: "chat",
+            intentDetected: "more_results",
+            message: noMoreMsg,
+            threadId,
+            aiAvailable: health.available,
+            aiBackend: health.backend,
+            _timings: timings
+          });
+        }
+      }
+    } else if (!wantsMoreResults && threadId && intentType === "search") {
+      clearShownListingIds(threadId);
+    }
+    if (threadId && searchResult.listings.length > 0) {
+      const newIds = searchResult.listings.map((l) => l.id);
+      addShownListingIds(threadId, newIds);
+    }
     const locations = [...new Set(searchResult.listings.map((l) => l.locationLabel))];
     t0 = Date.now();
     let aiSummary;
     if (intentType === "show_listings") {
       aiSummary = await generateResultsResponse(
         `showing listings from previous search`,
+        searchResult.matchType,
+        searchResult.listings.length,
+        searchResult.appliedPriceRange,
+        locations
+      );
+    } else if (wantsMoreResults) {
+      aiSummary = await generateResultsResponse(
+        `showing different/additional listings`,
         searchResult.matchType,
         searchResult.listings.length,
         searchResult.appliedPriceRange,
