@@ -19,6 +19,8 @@ export type ChatThread = {
   messages: ChatMessage[];
   lastSearchContext?: string;
   lastSearchResults?: any[]; // Store actual listing data for pick/select queries
+  previousSearchResults?: any[]; // Store ONE previous search (for "go back" feature)
+  previousSearchContext?: string; // Context of the previous search
 };
 
 // In-memory storage for threads (in production, use a database)
@@ -142,11 +144,23 @@ export function getLastSearchContext(threadId: string): string | null {
 
 /**
  * Store search results in a thread (for pick/select queries)
+ * Also saves the current results as "previous" before overwriting
  */
-export function storeSearchResults(threadId: string, listings: any[]): void {
+export function storeSearchResults(threadId: string, listings: any[], searchContext?: string): void {
   const thread = threads.get(threadId);
   if (thread) {
+    // Save current results as previous (only if there are current results)
+    if (thread.lastSearchResults && thread.lastSearchResults.length > 0) {
+      thread.previousSearchResults = thread.lastSearchResults;
+      thread.previousSearchContext = thread.lastSearchContext;
+      console.log(`[Threads] Saved ${thread.previousSearchResults.length} listings as previous in thread ${threadId}`);
+    }
+    
+    // Store new results as current
     thread.lastSearchResults = listings;
+    if (searchContext) {
+      thread.lastSearchContext = searchContext;
+    }
     console.log(`[Threads] Stored ${listings.length} listings in thread ${threadId}`);
   }
 }
@@ -157,6 +171,17 @@ export function storeSearchResults(threadId: string, listings: any[]): void {
 export function getLastSearchResults(threadId: string): any[] | null {
   const thread = threads.get(threadId);
   return thread?.lastSearchResults || null;
+}
+
+/**
+ * Get previous search results from a thread (one search ago)
+ */
+export function getPreviousSearchResults(threadId: string): { listings: any[] | null; context: string | null } {
+  const thread = threads.get(threadId);
+  return {
+    listings: thread?.previousSearchResults || null,
+    context: thread?.previousSearchContext || null,
+  };
 }
 
 /**

@@ -24,6 +24,7 @@ import {
   getLastSearchContext as getThreadSearchContext,
   storeSearchResults,
   getLastSearchResults,
+  getPreviousSearchResults,
 } from "../services/threadService";
 import {
   analyzeImage,
@@ -243,6 +244,59 @@ router.post("/chat", async (req, res) => {
       console.log("[Chat] No stored listings for pick_from_results, falling back to search");
     }
 
+    // Handle "previous results" / "go back" intent - return the last search before current
+    const previousResultsPatterns = /\b(previous|last|before|go\s*back|back\s*to|earlier|prior)\s*(search|results?|listings?|properties?)|\b(show|get|bring)\s*(back|up)\s*(the\s*)?(previous|last|earlier)\b/i;
+    if (previousResultsPatterns.test(message) && threadId) {
+      const { listings: previousListings, context: previousContext } = getPreviousSearchResults(threadId);
+      
+      if (previousListings && previousListings.length > 0) {
+        const aiSummary = `📋 Here are your **previous search results** (${previousListings.length} listings):\n\n${previousContext ? `_Original search: ${previousContext.match(/User searched for: "([^"]+)"/)?.[1] || 'your previous query'}_` : ''}`;
+        
+        // Store response in thread
+        if (threadId) {
+          addMessage(threadId, "assistant", aiSummary, "search", previousContext || undefined);
+        }
+        
+        timings.total = Date.now() - requestStart;
+        console.log(`[Chat] Returned ${previousListings.length} previous listings. Timings:`, timings);
+        
+        return res.json({
+          type: "search",
+          intentDetected: "previous_results",
+          message: aiSummary,
+          searchResult: {
+            listings: previousListings,
+            totalCount: previousListings.length,
+            matchType: "exact",
+            appliedPriceRange: {},
+          },
+          searchContext: previousContext,
+          threadId,
+          aiAvailable: health.available,
+          aiBackend: health.backend,
+          _timings: timings,
+        });
+      } else {
+        // No previous results available
+        const noResultsMsg = "I don't have any previous search results saved. Each conversation only remembers one search back. Try a new search!";
+        
+        if (threadId) {
+          addMessage(threadId, "assistant", noResultsMsg, "chat");
+        }
+        
+        timings.total = Date.now() - requestStart;
+        return res.json({
+          type: "chat",
+          intentDetected: "previous_results",
+          message: noResultsMsg,
+          threadId,
+          aiAvailable: health.available,
+          aiBackend: health.backend,
+          _timings: timings,
+        });
+      }
+    }
+
     // Handle conversation/follow-up (non-search) intent
     if (!shouldSearch) {
       t0 = Date.now();
@@ -397,9 +451,9 @@ router.post("/chat", async (req, res) => {
       `Price range: €${searchResult.appliedPriceRange.min ?? 0} - €${searchResult.appliedPriceRange.max ?? 'any'}. ` +
       `Locations: ${locations.slice(0, 5).join(", ") || "Various Portugal"}.`;
 
-    // Store search results in thread for future "pick X" queries
+    // Store search results in thread for future "pick X" queries AND "previous results" feature
     if (threadId && searchResult.listings.length > 0) {
-      storeSearchResults(threadId, searchResult.listings);
+      storeSearchResults(threadId, searchResult.listings, searchContext);
     }
 
     // Store search response in thread

@@ -4718,16 +4718,31 @@ function getLastSearchContext(threadId) {
   const thread = threads.get(threadId);
   return thread?.lastSearchContext || null;
 }
-function storeSearchResults(threadId, listings) {
+function storeSearchResults(threadId, listings, searchContext) {
   const thread = threads.get(threadId);
   if (thread) {
+    if (thread.lastSearchResults && thread.lastSearchResults.length > 0) {
+      thread.previousSearchResults = thread.lastSearchResults;
+      thread.previousSearchContext = thread.lastSearchContext;
+      console.log(`[Threads] Saved ${thread.previousSearchResults.length} listings as previous in thread ${threadId}`);
+    }
     thread.lastSearchResults = listings;
+    if (searchContext) {
+      thread.lastSearchContext = searchContext;
+    }
     console.log(`[Threads] Stored ${listings.length} listings in thread ${threadId}`);
   }
 }
 function getLastSearchResults(threadId) {
   const thread = threads.get(threadId);
   return thread?.lastSearchResults || null;
+}
+function getPreviousSearchResults(threadId) {
+  const thread = threads.get(threadId);
+  return {
+    listings: thread?.previousSearchResults || null,
+    context: thread?.previousSearchContext || null
+  };
 }
 function deleteThread(threadId) {
   return threads.delete(threadId);
@@ -4888,6 +4903,51 @@ router4.post("/chat", async (req, res) => {
       }
       console.log("[Chat] No stored listings for pick_from_results, falling back to search");
     }
+    const previousResultsPatterns = /\b(previous|last|before|go\s*back|back\s*to|earlier|prior)\s*(search|results?|listings?|properties?)|\b(show|get|bring)\s*(back|up)\s*(the\s*)?(previous|last|earlier)\b/i;
+    if (previousResultsPatterns.test(message) && threadId) {
+      const { listings: previousListings, context: previousContext } = getPreviousSearchResults(threadId);
+      if (previousListings && previousListings.length > 0) {
+        const aiSummary2 = `\u{1F4CB} Here are your **previous search results** (${previousListings.length} listings):
+
+${previousContext ? `_Original search: ${previousContext.match(/User searched for: "([^"]+)"/)?.[1] || "your previous query"}_` : ""}`;
+        if (threadId) {
+          addMessage(threadId, "assistant", aiSummary2, "search", previousContext || void 0);
+        }
+        timings.total = Date.now() - requestStart;
+        console.log(`[Chat] Returned ${previousListings.length} previous listings. Timings:`, timings);
+        return res.json({
+          type: "search",
+          intentDetected: "previous_results",
+          message: aiSummary2,
+          searchResult: {
+            listings: previousListings,
+            totalCount: previousListings.length,
+            matchType: "exact",
+            appliedPriceRange: {}
+          },
+          searchContext: previousContext,
+          threadId,
+          aiAvailable: health.available,
+          aiBackend: health.backend,
+          _timings: timings
+        });
+      } else {
+        const noResultsMsg = "I don't have any previous search results saved. Each conversation only remembers one search back. Try a new search!";
+        if (threadId) {
+          addMessage(threadId, "assistant", noResultsMsg, "chat");
+        }
+        timings.total = Date.now() - requestStart;
+        return res.json({
+          type: "chat",
+          intentDetected: "previous_results",
+          message: noResultsMsg,
+          threadId,
+          aiAvailable: health.available,
+          aiBackend: health.backend,
+          _timings: timings
+        });
+      }
+    }
     if (!shouldSearch) {
       t0 = Date.now();
       const response = await chatWithAI(message, aiHistory, lastSearchContext, conversationId);
@@ -5004,7 +5064,7 @@ router4.post("/chat", async (req, res) => {
     );
     const searchContext = `User searched for: "${searchQuery}". Found ${searchResult.listings.length} listings (${searchResult.matchType} match). Price range: \u20AC${searchResult.appliedPriceRange.min ?? 0} - \u20AC${searchResult.appliedPriceRange.max ?? "any"}. Locations: ${locations.slice(0, 5).join(", ") || "Various Portugal"}.`;
     if (threadId && searchResult.listings.length > 0) {
-      storeSearchResults(threadId, searchResult.listings);
+      storeSearchResults(threadId, searchResult.listings, searchContext);
     }
     if (threadId) {
       addMessage(threadId, "assistant", aiSummary, "search", searchContext);
