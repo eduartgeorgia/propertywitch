@@ -5165,6 +5165,50 @@ router4.get("/anonymous-status", (req, res) => {
     res.status(500).json({ error: "Failed to get status" });
   }
 });
+var checkUserSearchLimit = (token) => {
+  const { valid, payload } = verifyToken(token);
+  if (!valid) {
+    return { valid: false, allowed: false, remaining: 0, total: 0, plan: "none", message: "Invalid or expired token" };
+  }
+  const db = loadUsers();
+  const user = db.users.find((u) => u.id === payload.id);
+  if (!user) {
+    return { valid: false, allowed: false, remaining: 0, total: 0, plan: "none", message: "User not found" };
+  }
+  const plan = SUBSCRIPTION_PLANS[user.subscription.plan];
+  if (user.subscription.status !== "active") {
+    return {
+      valid: true,
+      allowed: false,
+      remaining: 0,
+      total: SUBSCRIPTION_PLANS.free.searchLimit,
+      plan: user.subscription.plan,
+      message: "Subscription is not active"
+    };
+  }
+  if (plan.searchLimit === -1) {
+    return { valid: true, allowed: true, remaining: -1, total: -1, plan: user.subscription.plan };
+  }
+  if (user.searchesThisMonth >= plan.searchLimit) {
+    return {
+      valid: true,
+      allowed: false,
+      remaining: 0,
+      total: plan.searchLimit,
+      plan: user.subscription.plan,
+      message: `You've reached your ${plan.searchLimit} searches limit for this month. Upgrade for more!`
+    };
+  }
+  user.searchesThisMonth++;
+  saveUsers(db);
+  return {
+    valid: true,
+    allowed: true,
+    remaining: plan.searchLimit - user.searchesThisMonth,
+    total: plan.searchLimit,
+    plan: user.subscription.plan
+  };
+};
 var auth_default = router4;
 
 // src/routes/chat.ts
@@ -5237,8 +5281,27 @@ router5.post("/chat", async (req, res) => {
   let { conversationHistory, lastSearchContext } = parsed.data;
   const userLocation = parsed.data.userLocation;
   const authHeader = req.headers.authorization;
-  const isAuthenticated = authHeader?.startsWith("Bearer ");
-  if (!isAuthenticated) {
+  const hasAuthToken = authHeader?.startsWith("Bearer ");
+  if (hasAuthToken) {
+    const token = authHeader.substring(7);
+    const userLimitCheck = checkUserSearchLimit(token);
+    if (!userLimitCheck.valid) {
+      console.log(`[Chat] Invalid token`);
+    } else if (!userLimitCheck.allowed) {
+      console.log(`[Chat] User search limit reached for plan: ${userLimitCheck.plan}`);
+      return res.status(429).json({
+        type: "limit_reached",
+        message: userLimitCheck.message,
+        remaining: userLimitCheck.remaining,
+        total: userLimitCheck.total,
+        plan: userLimitCheck.plan,
+        aiAvailable: true
+      });
+    } else {
+      const remaining = userLimitCheck.remaining === -1 ? "unlimited" : userLimitCheck.remaining;
+      console.log(`[Chat] Authenticated user (${userLimitCheck.plan}) - ${remaining} searches remaining`);
+    }
+  } else {
     const fingerprint = req.body.fingerprint;
     const limitCheck = checkAnonymousSearchLimit(req, fingerprint);
     if (!limitCheck.allowed) {

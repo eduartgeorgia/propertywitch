@@ -33,7 +33,7 @@ import {
   generateFeatureSummary,
   getVisionServiceStatus,
 } from "../services/visionService";
-import { checkAnonymousSearchLimit, getClientIP } from "./auth";
+import { checkAnonymousSearchLimit, getClientIP, checkUserSearchLimit } from "./auth";
 
 const router = Router();
 
@@ -132,12 +132,35 @@ router.post("/chat", async (req, res) => {
   let { conversationHistory, lastSearchContext } = parsed.data;
   const userLocation = parsed.data.userLocation as UserLocation;
   
-  // Check for auth token - if not authenticated, check anonymous limit
+  // Check for auth token and validate search limits
   const authHeader = req.headers.authorization;
-  const isAuthenticated = authHeader?.startsWith("Bearer ");
+  const hasAuthToken = authHeader?.startsWith("Bearer ");
   
-  if (!isAuthenticated) {
-    // Get fingerprint from request body if provided
+  if (hasAuthToken) {
+    // Authenticated user - check their subscription limits
+    const token = authHeader!.substring(7);
+    const userLimitCheck = checkUserSearchLimit(token);
+    
+    if (!userLimitCheck.valid) {
+      console.log(`[Chat] Invalid token`);
+      // Fall through to anonymous check
+    } else if (!userLimitCheck.allowed) {
+      console.log(`[Chat] User search limit reached for plan: ${userLimitCheck.plan}`);
+      return res.status(429).json({
+        type: "limit_reached",
+        message: userLimitCheck.message,
+        remaining: userLimitCheck.remaining,
+        total: userLimitCheck.total,
+        plan: userLimitCheck.plan,
+        aiAvailable: true,
+      });
+    } else {
+      // User is authenticated and has searches remaining
+      const remaining = userLimitCheck.remaining === -1 ? 'unlimited' : userLimitCheck.remaining;
+      console.log(`[Chat] Authenticated user (${userLimitCheck.plan}) - ${remaining} searches remaining`);
+    }
+  } else {
+    // Anonymous user - check IP-based limits
     const fingerprint = (req.body as any).fingerprint;
     const limitCheck = checkAnonymousSearchLimit(req, fingerprint);
     

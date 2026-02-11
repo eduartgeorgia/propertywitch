@@ -214,7 +214,7 @@ const generateToken = (user: User): string => {
 };
 
 // Verify JWT token
-const verifyToken = (token: string): { valid: boolean; payload?: any } => {
+export const verifyToken = (token: string): { valid: boolean; payload?: any } => {
   try {
     const [payloadB64, signature] = token.split(".");
     const expectedSignature = crypto
@@ -559,6 +559,72 @@ router.get("/anonymous-status", (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to get status" });
   }
 });
+// Check user search limit from token (validates and checks subscription)
+export const checkUserSearchLimit = (token: string): {
+  valid: boolean;
+  allowed: boolean;
+  remaining: number;
+  total: number;
+  plan: string;
+  message?: string;
+} => {
+  const { valid, payload } = verifyToken(token);
+  
+  if (!valid) {
+    return { valid: false, allowed: false, remaining: 0, total: 0, plan: 'none', message: 'Invalid or expired token' };
+  }
+  
+  const db = loadUsers();
+  const user = db.users.find((u) => u.id === payload.id);
+  
+  if (!user) {
+    return { valid: false, allowed: false, remaining: 0, total: 0, plan: 'none', message: 'User not found' };
+  }
+  
+  const plan = SUBSCRIPTION_PLANS[user.subscription.plan];
+  
+  // Check if subscription is active
+  if (user.subscription.status !== 'active') {
+    return { 
+      valid: true, 
+      allowed: false, 
+      remaining: 0, 
+      total: SUBSCRIPTION_PLANS.free.searchLimit,
+      plan: user.subscription.plan,
+      message: 'Subscription is not active' 
+    };
+  }
+  
+  // Unlimited searches for pro/enterprise
+  if (plan.searchLimit === -1) {
+    return { valid: true, allowed: true, remaining: -1, total: -1, plan: user.subscription.plan };
+  }
+  
+  // Check if limit reached
+  if (user.searchesThisMonth >= plan.searchLimit) {
+    return { 
+      valid: true, 
+      allowed: false, 
+      remaining: 0, 
+      total: plan.searchLimit,
+      plan: user.subscription.plan,
+      message: `You've reached your ${plan.searchLimit} searches limit for this month. Upgrade for more!` 
+    };
+  }
+  
+  // Increment and save
+  user.searchesThisMonth++;
+  saveUsers(db);
+  
+  return { 
+    valid: true, 
+    allowed: true, 
+    remaining: plan.searchLimit - user.searchesThisMonth,
+    total: plan.searchLimit,
+    plan: user.subscription.plan
+  };
+};
+
 // Increment search count (called by search route)
 export const incrementSearchCount = (userId: string): { allowed: boolean; remaining: number } => {
   const db = loadUsers();

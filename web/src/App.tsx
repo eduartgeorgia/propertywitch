@@ -768,12 +768,19 @@ const App = () => {
     };
 
     try {
+      // Build headers - include auth token if logged in
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const token = localStorage.getItem("auth_token");
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      
       // Use AI-powered chat endpoint with retry for network errors
       const response = await fetchWithRetry(
         "/api/chat",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(payload),
           signal, // Pass abort signal
         },
