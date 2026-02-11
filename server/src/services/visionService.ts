@@ -1,10 +1,10 @@
 /**
  * Vision Service - AI Image Analysis for Property Listings
- * Uses Groq's vision model (llama-3.2-90b-vision-preview) to analyze property photos
+ * Uses DeepSeek for text analysis, DeepSeek vision model for image analysis
  * Identifies features like: pools, sea views, forests, ruins, architectural styles, etc.
  */
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY ?? "";
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? "";
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 // Features that can be detected in property images
@@ -71,7 +71,7 @@ export type ListingImageAnalysis = {
 const analysisCache = new Map<string, ImageAnalysisResult>();
 
 /**
- * Analyze a single image URL using Groq Vision
+ * Analyze a single image URL using DeepSeek Vision
  */
 export async function analyzeImage(imageUrl: string): Promise<ImageAnalysisResult | null> {
   // Check cache first
@@ -81,8 +81,8 @@ export async function analyzeImage(imageUrl: string): Promise<ImageAnalysisResul
     return cached;
   }
 
-  if (!GROQ_API_KEY) {
-    console.error("[Vision] No GROQ_API_KEY configured");
+  if (!DEEPSEEK_API_KEY) {
+    console.error("[Vision] No DEEPSEEK_API_KEY configured");
     return null;
   }
 
@@ -110,10 +110,10 @@ Respond with ONLY valid JSON:
 }`;
 
   try {
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Authorization": `Bearer ${DEEPSEEK_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -141,7 +141,7 @@ Respond with ONLY valid JSON:
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Vision] Groq API error: ${response.status} - ${errorText}`);
+      console.error(`[Vision] DeepSeek API error: ${response.status} - ${errorText}`);
       return null;
     }
 
@@ -461,7 +461,7 @@ export function getVisionServiceStatus(): {
   cacheSize: number;
 } {
   return {
-    available: !!GROQ_API_KEY,
+    available: !!DEEPSEEK_API_KEY,
     model: VISION_MODEL,
     cacheSize: analysisCache.size,
   };

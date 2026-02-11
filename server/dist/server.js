@@ -1029,7 +1029,7 @@ function getVectorStore() {
 }
 
 // src/services/rag/embeddingService.ts
-var GROQ_API_KEY = process.env.GROQ_API_KEY ?? "";
+var DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? "";
 var EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
 var OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 var PROPERTY_VOCABULARY = [
@@ -2080,8 +2080,8 @@ function clearRAGData(collection) {
 }
 
 // src/services/aiService.ts
-var GROQ_API_KEY2 = process.env.GROQ_API_KEY ?? "";
-var GROQ_MODEL = process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile";
+var DEEPSEEK_API_KEY2 = process.env.DEEPSEEK_API_KEY ?? "";
+var DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
 var ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 var CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514";
 var OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
@@ -2146,8 +2146,8 @@ IMPORTANT RULES:
 - Be helpful and conversational
 - Keep responses focused and informative`;
 var detectBackend2 = async () => {
-  if (GROQ_API_KEY2 && GROQ_API_KEY2.startsWith("gsk_")) {
-    console.log("AI Backend: Groq API (cloud) - PRIMARY");
+  if (DEEPSEEK_API_KEY2 && DEEPSEEK_API_KEY2.startsWith("sk-")) {
+    console.log("AI Backend: DeepSeek API (cloud) - PRIMARY");
     activeBackend2 = "groq";
     return "groq";
   }
@@ -2214,9 +2214,10 @@ var getAvailableBackends = async () => {
   }
   backends.push({
     id: "groq",
-    name: "Groq Cloud",
-    available: !!(GROQ_API_KEY2 && GROQ_API_KEY2.startsWith("gsk_")),
-    models: GROQ_API_KEY2 ? [GROQ_MODEL] : void 0,
+    // Keep 'groq' for backward compatibility
+    name: "DeepSeek Cloud",
+    available: !!(DEEPSEEK_API_KEY2 && DEEPSEEK_API_KEY2.startsWith("sk-")),
+    models: DEEPSEEK_API_KEY2 ? [DEEPSEEK_MODEL] : void 0,
     isCloud: true
   });
   backends.push({
@@ -2276,7 +2277,7 @@ var getCurrentBackendInfo = () => {
   if (activeBackend2 === "ollama") {
     model = activeOllamaModel;
   } else if (activeBackend2 === "groq") {
-    model = GROQ_MODEL;
+    model = DEEPSEEK_MODEL;
   } else if (activeBackend2 === "claude") {
     model = CLAUDE_MODEL;
   } else if (activeBackend2 === "local") {
@@ -2307,15 +2308,15 @@ async function callGroq(prompt, system, conversationHistory) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4e4);
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const timeout = setTimeout(() => controller.abort(), 6e4);
+      const response = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${GROQ_API_KEY2}`
+          "Authorization": `Bearer ${DEEPSEEK_API_KEY2}`
         },
         body: JSON.stringify({
-          model: GROQ_MODEL,
+          model: DEEPSEEK_MODEL,
           messages,
           temperature: 0.7,
           max_tokens: 4096
@@ -2325,21 +2326,21 @@ async function callGroq(prompt, system, conversationHistory) {
       clearTimeout(timeout);
       if (!response.ok) {
         const error = await response.text();
-        throw new Error(`Groq API error: ${response.status} - ${error}`);
+        throw new Error(`DeepSeek API error: ${response.status} - ${error}`);
       }
       const data = await response.json();
       return data.choices?.[0]?.message?.content || "";
     } catch (error) {
       lastError = error;
-      const isRetryable = lastError.name === "AbortError" || lastError.message.includes("network") || lastError.message.includes("ECONNREFUSED") || lastError.message.includes("ETIMEDOUT") || lastError.message.includes("Groq API error: 5") && attempt < maxRetries - 1;
+      const isRetryable = lastError.name === "AbortError" || lastError.message.includes("network") || lastError.message.includes("ECONNREFUSED") || lastError.message.includes("ETIMEDOUT") || lastError.message.includes("DeepSeek API error: 5") && attempt < maxRetries - 1;
       if (!isRetryable || attempt === maxRetries - 1) {
         throw lastError;
       }
-      console.log(`Groq API attempt ${attempt + 1} failed, retrying...`);
+      console.log(`DeepSeek API attempt ${attempt + 1} failed, retrying...`);
       await new Promise((resolve) => setTimeout(resolve, 1e3 * Math.pow(2, attempt)));
     }
   }
-  throw lastError || new Error("Groq API call failed after retries");
+  throw lastError || new Error("DeepSeek API call failed after retries");
 }
 async function callAIWithFallback(prompt, system, conversationHistory) {
   const health = await checkAIHealth();
@@ -3478,7 +3479,7 @@ Respond with ONLY a valid JSON object:
 };
 
 // src/services/visionService.ts
-var GROQ_API_KEY3 = process.env.GROQ_API_KEY ?? "";
+var DEEPSEEK_API_KEY3 = process.env.DEEPSEEK_API_KEY ?? "";
 var VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 var analysisCache = /* @__PURE__ */ new Map();
 async function analyzeImage(imageUrl) {
@@ -3487,8 +3488,8 @@ async function analyzeImage(imageUrl) {
     console.log(`[Vision] Cache hit for image`);
     return cached;
   }
-  if (!GROQ_API_KEY3) {
-    console.error("[Vision] No GROQ_API_KEY configured");
+  if (!DEEPSEEK_API_KEY3) {
+    console.error("[Vision] No DEEPSEEK_API_KEY configured");
     return null;
   }
   console.log(`[Vision] Analyzing image: ${imageUrl.substring(0, 60)}...`);
@@ -3513,10 +3514,10 @@ Respond with ONLY valid JSON:
   "surroundings": "Brief description of the surroundings"
 }`;
   try {
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${GROQ_API_KEY3}`,
+        "Authorization": `Bearer ${DEEPSEEK_API_KEY3}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -3543,7 +3544,7 @@ Respond with ONLY valid JSON:
     });
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Vision] Groq API error: ${response.status} - ${errorText}`);
+      console.error(`[Vision] DeepSeek API error: ${response.status} - ${errorText}`);
       return null;
     }
     const data = await response.json();
@@ -3781,7 +3782,7 @@ function generateFeatureSummary(features) {
 }
 function getVisionServiceStatus() {
   return {
-    available: !!GROQ_API_KEY3,
+    available: !!DEEPSEEK_API_KEY3,
     model: VISION_MODEL,
     cacheSize: analysisCache.size
   };
@@ -4241,8 +4242,8 @@ var import_express4 = require("express");
 var import_zod3 = require("zod");
 
 // src/services/agentService.ts
-var GROQ_API_KEY4 = process.env.GROQ_API_KEY ?? "";
-var GROQ_MODEL2 = process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile";
+var DEEPSEEK_API_KEY4 = process.env.DEEPSEEK_API_KEY ?? "";
+var DEEPSEEK_MODEL2 = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
 var ANTHROPIC_API_KEY2 = process.env.ANTHROPIC_API_KEY ?? "";
 var CLAUDE_MODEL2 = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514";
 var OLLAMA_URL2 = process.env.OLLAMA_URL ?? "http://localhost:11434";
@@ -4458,16 +4459,16 @@ function parseAgentResponse(response) {
   return steps;
 }
 async function callAgentAI(messages, backend) {
-  if (backend === "groq" && GROQ_API_KEY4) {
+  if (backend === "groq" && DEEPSEEK_API_KEY4) {
     try {
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const response = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${GROQ_API_KEY4}`
+          "Authorization": `Bearer ${DEEPSEEK_API_KEY4}`
         },
         body: JSON.stringify({
-          model: GROQ_MODEL2,
+          model: DEEPSEEK_MODEL2,
           messages: messages.map((m) => ({ role: m.role, content: m.content })),
           temperature: 0.7,
           max_tokens: 2048
@@ -4476,17 +4477,17 @@ async function callAgentAI(messages, backend) {
       if (!response.ok) {
         const errorText = await response.text();
         if (response.status === 429) {
-          console.log("[Agent] Groq rate limit hit, falling back to Ollama...");
+          console.log("[Agent] DeepSeek rate limit hit, falling back to Ollama...");
           return callAgentAI(messages, "ollama");
         }
-        throw new Error(`Groq API error: ${response.status} - ${errorText}`);
+        throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
       }
       const data = await response.json();
       return data.choices?.[0]?.message?.content || "";
     } catch (error) {
       const errorMsg = error.message;
       if (errorMsg.includes("429") || errorMsg.includes("rate") || errorMsg.includes("limit")) {
-        console.log("[Agent] Groq error, falling back to Ollama...");
+        console.log("[Agent] DeepSeek error, falling back to Ollama...");
         return callAgentAI(messages, "ollama");
       }
       throw error;

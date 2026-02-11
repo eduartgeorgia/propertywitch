@@ -1,9 +1,9 @@
 /**
  * Embedding Service - Generate embeddings for text using various backends
- * Supports: Groq (via OpenAI-compatible API), Local models, or simple TF-IDF fallback
+ * Supports: DeepSeek (via OpenAI-compatible API), Local models, or simple TF-IDF fallback
  */
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY ?? "";
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? "";
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 

@@ -1,6 +1,6 @@
 /**
  * AI Service - Multi-backend AI support for property search
- * Supports: Groq (cloud), Ollama with Llama3.3-Thinking-Claude (local), Claude API (optional)
+ * Supports: DeepSeek (cloud), Ollama with Llama3.3-Thinking-Claude (local), Claude API (optional)
  * Local-first architecture with cloud fallback
  * Now with RAG (Retrieval-Augmented Generation) support
  */
@@ -150,7 +150,7 @@ Intent types:
 
 /**
  * Check which AI backend is available
- * Priority: Groq (cloud - fast) > Ollama (local) > Claude (cloud) > Local LLaMA
+ * Priority: DeepSeek (cloud - fast) > Ollama (local) > Claude (cloud) > Local LLaMA
  */
 export const detectBackend = async (): Promise<AIBackend> => {
   // Check DeepSeek first (cloud - fast & primary)
@@ -234,12 +234,12 @@ export const getAvailableBackends = async (): Promise<AvailableBackend[]> => {
     backends.push({ id: "ollama", name: "Ollama (Local)", available: false, isCloud: false });
   }
 
-  // Check Groq
+  // Check DeepSeek
   backends.push({
-    id: "groq",
-    name: "Groq Cloud",
-    available: !!(GROQ_API_KEY && GROQ_API_KEY.startsWith("gsk_")),
-    models: GROQ_API_KEY ? [GROQ_MODEL] : undefined,
+    id: "groq", // Keep 'groq' for backward compatibility
+    name: "DeepSeek Cloud",
+    available: !!(DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.startsWith("sk-")),
+    models: DEEPSEEK_API_KEY ? [DEEPSEEK_MODEL] : undefined,
     isCloud: true,
   });
 
@@ -325,7 +325,7 @@ export const getCurrentBackendInfo = (): {
   if (activeBackend === "ollama") {
     model = activeOllamaModel;
   } else if (activeBackend === "groq") {
-    model = GROQ_MODEL;
+    model = DEEPSEEK_MODEL; // Use DeepSeek model
   } else if (activeBackend === "claude") {
     model = CLAUDE_MODEL;
   } else if (activeBackend === "local") {

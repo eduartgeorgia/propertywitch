@@ -12,8 +12,8 @@ import { checkAIHealth, parseQueryWithAI, AIMessage } from "./aiService";
 import { runSearch } from "./searchService";
 import type { SearchResponse } from "../types/api";
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY ?? "";
-const GROQ_MODEL = process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile";
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? "";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514";
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
@@ -320,16 +320,16 @@ async function callAgentAI(
   messages: AIMessage[],
   backend: string
 ): Promise<string> {
-  if (backend === "groq" && GROQ_API_KEY) {
+  if (backend === "groq" && DEEPSEEK_API_KEY) {
     try {
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const response = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${GROQ_API_KEY}`,
+          "Authorization": `Bearer ${DEEPSEEK_API_KEY}`,
         },
         body: JSON.stringify({
-          model: GROQ_MODEL,
+          model: DEEPSEEK_MODEL,
           messages: messages.map(m => ({ role: m.role, content: m.content })),
           temperature: 0.7,
           max_tokens: 2048,
@@ -340,19 +340,19 @@ async function callAgentAI(
         const errorText = await response.text();
         // Check for rate limit - fallback to Ollama
         if (response.status === 429) {
-          console.log("[Agent] Groq rate limit hit, falling back to Ollama...");
+          console.log("[Agent] DeepSeek rate limit hit, falling back to Ollama...");
           return callAgentAI(messages, "ollama");
         }
-        throw new Error(`Groq API error: ${response.status} - ${errorText}`);
+        throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
       return data.choices?.[0]?.message?.content || "";
     } catch (error) {
-      // On any Groq error, try Ollama fallback
+      // On any DeepSeek error, try Ollama fallback
       const errorMsg = (error as Error).message;
       if (errorMsg.includes('429') || errorMsg.includes('rate') || errorMsg.includes('limit')) {
-        console.log("[Agent] Groq error, falling back to Ollama...");
+        console.log("[Agent] DeepSeek error, falling back to Ollama...");
         return callAgentAI(messages, "ollama");
       }
       throw error;
