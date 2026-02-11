@@ -1,11 +1,12 @@
 /**
  * Embedding Service - Generate embeddings for text using various backends
- * Supports: DeepSeek (via OpenAI-compatible API), Local models, or simple TF-IDF fallback
+ * Supports: DeepSeek API, OpenAI API, or simple TF-IDF fallback
  */
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? "";
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
+const DEEPSEEK_EMBEDDING_MODEL = process.env.DEEPSEEK_EMBEDDING_MODEL ?? "text-embedding-ada-002";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
 
 // Vocabulary for TF-IDF fallback (property-related terms)
 const PROPERTY_VOCABULARY = [
@@ -28,14 +29,20 @@ const PROPERTY_VOCABULARY = [
   "tax", "imt", "notary", "lawyer", "contract", "deed", "registration", "nif", "visa", "golden",
 ];
 
-type EmbeddingBackend = "openai" | "tfidf";
+type EmbeddingBackend = "deepseek" | "openai" | "tfidf";
 let activeBackend: EmbeddingBackend = "tfidf";
 
 /**
  * Detect available embedding backend
  */
 async function detectBackend(): Promise<EmbeddingBackend> {
-  // Check OpenAI API (works with various providers)
+  // Check DeepSeek API first (primary)
+  if (DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.startsWith("sk-")) {
+    console.log("[Embeddings] Using DeepSeek API");
+    return "deepseek";
+  }
+  
+  // Check OpenAI API as fallback
   if (OPENAI_API_KEY && OPENAI_API_KEY.startsWith("sk-")) {
     console.log("[Embeddings] Using OpenAI API");
     return "openai";
@@ -43,6 +50,31 @@ async function detectBackend(): Promise<EmbeddingBackend> {
   
   console.log("[Embeddings] Using TF-IDF fallback (no embedding API configured)");
   return "tfidf";
+}
+
+/**
+ * Generate embeddings using DeepSeek API (OpenAI-compatible)
+ */
+async function generateDeepSeekEmbedding(text: string): Promise<number[]> {
+  const response = await fetch("https://api.deepseek.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${DEEPSEEK_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_EMBEDDING_MODEL,
+      input: text.slice(0, 8000), // Truncate to fit model limits
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`DeepSeek Embedding API error: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+  return data.data?.[0]?.embedding || [];
 }
 
 /**
@@ -133,6 +165,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   
   try {
     switch (activeBackend) {
+      case "deepseek":
+        return await generateDeepSeekEmbedding(text);
       case "openai":
         return await generateOpenAIEmbedding(text);
       case "tfidf":
@@ -178,7 +212,11 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
  * Get embedding dimension
  */
 export function getEmbeddingDimension(): number {
-  return activeBackend === "openai" ? 1536 : PROPERTY_VOCABULARY.length;
+  // DeepSeek embeddings are 1536 dimensions (same as OpenAI ada-002)
+  if (activeBackend === "deepseek" || activeBackend === "openai") {
+    return 1536;
+  }
+  return PROPERTY_VOCABULARY.length;
 }
 
 /**

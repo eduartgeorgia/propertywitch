@@ -1030,8 +1030,9 @@ function getVectorStore() {
 
 // src/services/rag/embeddingService.ts
 var DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? "";
-var EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
+var DEEPSEEK_EMBEDDING_MODEL = process.env.DEEPSEEK_EMBEDDING_MODEL ?? "text-embedding-ada-002";
 var OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
+var EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
 var PROPERTY_VOCABULARY = [
   // Property types
   "land",
@@ -1127,12 +1128,36 @@ var PROPERTY_VOCABULARY = [
 ];
 var activeBackend = "tfidf";
 async function detectBackend() {
+  if (DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.startsWith("sk-")) {
+    console.log("[Embeddings] Using DeepSeek API");
+    return "deepseek";
+  }
   if (OPENAI_API_KEY && OPENAI_API_KEY.startsWith("sk-")) {
     console.log("[Embeddings] Using OpenAI API");
     return "openai";
   }
   console.log("[Embeddings] Using TF-IDF fallback (no embedding API configured)");
   return "tfidf";
+}
+async function generateDeepSeekEmbedding(text) {
+  const response = await fetch("https://api.deepseek.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${DEEPSEEK_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_EMBEDDING_MODEL,
+      input: text.slice(0, 8e3)
+      // Truncate to fit model limits
+    })
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`DeepSeek Embedding API error: ${response.status} - ${error}`);
+  }
+  const data = await response.json();
+  return data.data?.[0]?.embedding || [];
 }
 async function generateOpenAIEmbedding(text) {
   const response = await fetch("https://api.openai.com/v1/embeddings", {
@@ -1192,6 +1217,8 @@ async function generateEmbedding(text) {
   }
   try {
     switch (activeBackend) {
+      case "deepseek":
+        return await generateDeepSeekEmbedding(text);
       case "openai":
         return await generateOpenAIEmbedding(text);
       case "tfidf":
@@ -1222,7 +1249,10 @@ async function generateEmbeddings(texts) {
   return embeddings;
 }
 function getEmbeddingDimension() {
-  return activeBackend === "openai" ? 1536 : PROPERTY_VOCABULARY.length;
+  if (activeBackend === "deepseek" || activeBackend === "openai") {
+    return 1536;
+  }
+  return PROPERTY_VOCABULARY.length;
 }
 function getEmbeddingBackend() {
   return {
