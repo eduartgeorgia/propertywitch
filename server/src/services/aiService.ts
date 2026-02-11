@@ -7,8 +7,8 @@
 
 import { initializeRAG, buildRAGContext, storeConversation, getRAGStats } from "./rag/index";
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY ?? "";
-const GROQ_MODEL = process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile";
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? "";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514";
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
@@ -153,10 +153,10 @@ Intent types:
  * Priority: Groq (cloud - fast) > Ollama (local) > Claude (cloud) > Local LLaMA
  */
 export const detectBackend = async (): Promise<AIBackend> => {
-  // Check Groq first (cloud - fast & primary)
-  if (GROQ_API_KEY && GROQ_API_KEY.startsWith("gsk_")) {
-    console.log("AI Backend: Groq API (cloud) - PRIMARY");
-    activeBackend = "groq";
+  // Check DeepSeek first (cloud - fast & primary)
+  if (DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.startsWith("sk-")) {
+    console.log("AI Backend: DeepSeek API (cloud) - PRIMARY");
+    activeBackend = "groq"; // Keep as 'groq' for compatibility
     return "groq";
   }
 
@@ -349,7 +349,7 @@ export const checkAIHealth = async (): Promise<{ available: boolean; backend: AI
 };
 
 /**
- * Call Groq API (fast inference) with retry logic
+ * Call DeepSeek API (fast inference) with retry logic
  */
 async function callGroq(prompt: string, system?: string, conversationHistory?: AIMessage[]): Promise<string> {
   const messages: { role: string; content: string }[] = [
@@ -371,16 +371,16 @@ async function callGroq(prompt: string, system?: string, conversationHistory?: A
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 40000); // 40 second timeout
+      const timeout = setTimeout(() => controller.abort(), 60000); // 60 second timeout for DeepSeek
 
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const response = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${GROQ_API_KEY}`,
+          "Authorization": `Bearer ${DEEPSEEK_API_KEY}`,
         },
         body: JSON.stringify({
-          model: GROQ_MODEL,
+          model: DEEPSEEK_MODEL,
           messages,
           temperature: 0.7,
           max_tokens: 4096,
@@ -392,7 +392,7 @@ async function callGroq(prompt: string, system?: string, conversationHistory?: A
 
       if (!response.ok) {
         const error = await response.text();
-        throw new Error(`Groq API error: ${response.status} - ${error}`);
+        throw new Error(`DeepSeek API error: ${response.status} - ${error}`);
       }
 
       const data = await response.json();
@@ -403,22 +403,22 @@ async function callGroq(prompt: string, system?: string, conversationHistory?: A
                           lastError.message.includes('network') ||
                           lastError.message.includes('ECONNREFUSED') ||
                           lastError.message.includes('ETIMEDOUT') ||
-                          (lastError.message.includes('Groq API error: 5') && attempt < maxRetries - 1); // 5xx errors
+                          (lastError.message.includes('DeepSeek API error: 5') && attempt < maxRetries - 1); // 5xx errors
 
       if (!isRetryable || attempt === maxRetries - 1) {
         throw lastError;
       }
 
-      console.log(`Groq API attempt ${attempt + 1} failed, retrying...`);
+      console.log(`DeepSeek API attempt ${attempt + 1} failed, retrying...`);
       await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
     }
   }
 
-  throw lastError || new Error('Groq API call failed after retries');
+  throw lastError || new Error('DeepSeek API call failed after retries');
 }
 
 /**
- * Call Groq with Ollama fallback for rate limits/errors
+ * Call DeepSeek with Ollama fallback for rate limits/errors
  */
 async function callGroqWithFallback(prompt: string, system?: string, conversationHistory?: AIMessage[]): Promise<string> {
   try {
@@ -427,7 +427,7 @@ async function callGroqWithFallback(prompt: string, system?: string, conversatio
     const errorMsg = (error as Error).message;
     // Check for rate limit errors (429), quota exceeded, or other recoverable errors
     if (errorMsg.includes('429') || errorMsg.includes('rate') || errorMsg.includes('limit') || errorMsg.includes('quota') || errorMsg.includes('500') || errorMsg.includes('503')) {
-      console.log("[AI] Groq error, trying Ollama fallback...");
+      console.log("[AI] DeepSeek error, trying Ollama fallback...");
       return await tryFallbackChain(prompt, system, conversationHistory, error as Error);
     }
     throw error;
