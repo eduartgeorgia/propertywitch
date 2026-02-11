@@ -34,9 +34,20 @@ export const FX_RATES = {
 
 export const SITE_ORDER = [
   "idealista",
-  "kyero",
-  "supercasa",
-  "pureportugal",
   "imovirtual",
+  "casasapo",
+  "supercasa",
+  "remax",
+  "era",
+  "century21",
   "olx",
+  "google",
 ];
+
+// Google Custom Search API for searching Idealista, Imovirtual, etc.
+export const GOOGLE_SEARCH = {
+  apiKey: process.env.GOOGLE_SEARCH_API_KEY || "AIzaSyDr8ZReRh86y9bU8RNenqPKzrYXASB-DPs",
+  // Create a Programmable Search Engine at: https://programmablesearchengine.google.com/
+  // Configure it to search: idealista.pt, imovirtual.com, casasapo.pt, supercasa.pt, remax.pt, era.pt, century21.pt
+  searchEngineId: process.env.GOOGLE_SEARCH_ENGINE_ID || "",
+};

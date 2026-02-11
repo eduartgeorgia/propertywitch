@@ -56,6 +56,12 @@ var FX_RATES = {
   USD_EUR: Number(process.env.FX_RATE_USD_EUR ?? 0.92),
   GBP_EUR: Number(process.env.FX_RATE_GBP_EUR ?? 1.17)
 };
+var GOOGLE_SEARCH = {
+  apiKey: process.env.GOOGLE_SEARCH_API_KEY || "AIzaSyDr8ZReRh86y9bU8RNenqPKzrYXASB-DPs",
+  // Create a Programmable Search Engine at: https://programmablesearchengine.google.com/
+  // Configure it to search: idealista.pt, imovirtual.com, casasapo.pt, supercasa.pt, remax.pt, era.pt, century21.pt
+  searchEngineId: process.env.GOOGLE_SEARCH_ENGINE_ID || ""
+};
 
 // src/routes/search.ts
 var import_express = require("express");
@@ -544,9 +550,186 @@ var adapter = {
   }
 };
 
+// src/adapters/googleSearch.ts
+var GOOGLE_API_KEY = GOOGLE_SEARCH.apiKey;
+var SEARCH_ENGINE_ID = GOOGLE_SEARCH.searchEngineId;
+var PROPERTY_SITES = [
+  "idealista.pt",
+  "imovirtual.com",
+  "casasapo.pt",
+  "supercasa.pt",
+  "remax.pt",
+  "era.pt",
+  "century21.pt"
+];
+var buildSearchQuery = (context) => {
+  const { query, priceRange, propertyType } = context;
+  const siteQuery = PROPERTY_SITES.map((site) => `site:${site}`).join(" OR ");
+  let searchQuery = query;
+  if (propertyType) {
+    const typeTerms = {
+      apartment: "apartamento",
+      house: "moradia casa",
+      land: "terreno",
+      villa: "vivenda",
+      farm: "quinta",
+      commercial: "comercial loja escrit\xF3rio"
+    };
+    searchQuery += ` ${typeTerms[propertyType] || propertyType}`;
+  }
+  if (priceRange.max) {
+    searchQuery += ` at\xE9 \u20AC${priceRange.max}`;
+  }
+  if (priceRange.min) {
+    searchQuery += ` desde \u20AC${priceRange.min}`;
+  }
+  return `(${siteQuery}) ${searchQuery}`;
+};
+var extractPrice2 = (result) => {
+  const text = `${result.title} ${result.snippet}`;
+  const pricePatterns = [
+    /€\s*([\d.,]+)/g,
+    /([\d.,]+)\s*€/g,
+    /EUR\s*([\d.,]+)/gi,
+    /([\d.,]+)\s*EUR/gi
+  ];
+  for (const pattern of pricePatterns) {
+    const matches = text.matchAll(pattern);
+    for (const match of matches) {
+      const priceStr = match[1].replace(/\./g, "").replace(/,/g, ".");
+      const price = parseFloat(priceStr);
+      if (!isNaN(price) && price > 100 && price < 1e8) {
+        return price;
+      }
+    }
+  }
+  return null;
+};
+var extractLocation = (result) => {
+  const urlParts = result.link.split("/");
+  const locationKeywords = [
+    "lisboa",
+    "porto",
+    "faro",
+    "braga",
+    "coimbra",
+    "set\xFAbal",
+    "setubal",
+    "aveiro",
+    "leiria",
+    "santar\xE9m",
+    "santarem",
+    "\xE9vora",
+    "evora",
+    "beja",
+    "algarve",
+    "cascais",
+    "sintra",
+    "almada",
+    "oeiras",
+    "amadora"
+  ];
+  for (const part of urlParts) {
+    const normalized = part.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    for (const keyword of locationKeywords) {
+      if (normalized.includes(keyword)) {
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      }
+    }
+  }
+  return void 0;
+};
+var detectSourceSite = (url) => {
+  if (url.includes("idealista"))
+    return "idealista";
+  if (url.includes("imovirtual"))
+    return "imovirtual";
+  if (url.includes("casasapo"))
+    return "casasapo";
+  if (url.includes("supercasa"))
+    return "supercasa";
+  if (url.includes("remax"))
+    return "remax";
+  if (url.includes("era.pt"))
+    return "era";
+  if (url.includes("century21"))
+    return "century21";
+  return "google";
+};
+var toListingFromGoogle = (result) => {
+  const price = extractPrice2(result);
+  const sourceSite = detectSourceSite(result.link);
+  const image = result.pagemap?.cse_image?.[0]?.src || result.pagemap?.cse_thumbnail?.[0]?.src;
+  return {
+    id: `google-${sourceSite}-${Buffer.from(result.link).toString("base64").slice(0, 20)}`,
+    sourceSite,
+    sourceUrl: result.link,
+    title: result.title.replace(/ - .*$/, "").trim(),
+    // Remove site name suffix
+    priceEur: price || 0,
+    currency: "EUR",
+    description: result.snippet,
+    city: extractLocation(result),
+    address: extractLocation(result),
+    photos: image ? [image] : [],
+    lastSeenAt: (/* @__PURE__ */ new Date()).toISOString(),
+    propertyType: void 0,
+    // Hard to detect from Google results
+    listingType: void 0
+    // Will be detected by searchService
+  };
+};
+var searchGoogle = async (context) => {
+  if (!SEARCH_ENGINE_ID) {
+    console.log("[GoogleSearch] \u26A0\uFE0F No Search Engine ID configured - skipping Google search");
+    console.log("[GoogleSearch] Set GOOGLE_SEARCH_ENGINE_ID env var to enable");
+    return [];
+  }
+  const query = buildSearchQuery(context);
+  console.log(`[GoogleSearch] \u{1F50D} Searching: "${query}"`);
+  try {
+    const url = new URL("https://www.googleapis.com/customsearch/v1");
+    url.searchParams.set("key", GOOGLE_API_KEY);
+    url.searchParams.set("cx", SEARCH_ENGINE_ID);
+    url.searchParams.set("q", query);
+    url.searchParams.set("num", "10");
+    url.searchParams.set("gl", "pt");
+    url.searchParams.set("lr", "lang_pt|lang_en");
+    const response = await fetch(url.toString());
+    const data = await response.json();
+    if (data.error) {
+      console.error(`[GoogleSearch] \u274C API Error: ${data.error.message}`);
+      return [];
+    }
+    if (!data.items || data.items.length === 0) {
+      console.log("[GoogleSearch] No results found");
+      return [];
+    }
+    console.log(`[GoogleSearch] \u2705 Found ${data.items.length} results`);
+    const listings = [];
+    for (const result of data.items) {
+      const listing = toListingFromGoogle(result);
+      if (listing) {
+        listings.push(listing);
+      }
+    }
+    console.log(`[GoogleSearch] \u{1F4CB} Converted ${listings.length} valid listings`);
+    return listings;
+  } catch (error) {
+    console.error("[GoogleSearch] \u274C Error:", error);
+    return [];
+  }
+};
+var adapter2 = {
+  siteId: "google",
+  siteName: "Google Property Search",
+  searchListings: searchGoogle
+};
+
 // src/adapters/registry.ts
 var ADAPTERS = [
-  adapter
+  adapter,
+  adapter2
 ];
 
 // src/adapters/mock.ts
@@ -3821,7 +4004,7 @@ function getVisionServiceStatus() {
 }
 
 // src/services/searchService.ts
-var adapterById = new Map(ADAPTERS.map((adapter2) => [adapter2.siteId, adapter2]));
+var adapterById = new Map(ADAPTERS.map((adapter3) => [adapter3.siteId, adapter3]));
 var detectListingType = (listing) => {
   const title = listing.title.toLowerCase();
   const desc = (listing.description || "").toLowerCase();
@@ -3938,9 +4121,9 @@ var toCard = (listing, distanceKm2, relevanceScore, relevanceReasoning, visionAn
 var runAdapterSearch = async (query, priceRange, propertyType) => {
   const adapters = APP_CONFIG.mockData ? [mockAdapter] : ADAPTERS;
   const results = [];
-  for (const adapter2 of adapters) {
+  for (const adapter3 of adapters) {
     try {
-      const listings = await adapter2.searchListings({
+      const listings = await adapter3.searchListings({
         query: query.query,
         priceRange,
         userLocation: query.userLocation,
@@ -3948,7 +4131,7 @@ var runAdapterSearch = async (query, priceRange, propertyType) => {
       });
       results.push(...listings);
     } catch (error) {
-      console.error(`[Search] ${adapter2.siteId} adapter failed:`, error);
+      console.error(`[Search] ${adapter3.siteId} adapter failed:`, error);
     }
   }
   return results;
@@ -6017,7 +6200,7 @@ var OLX_REGIONS2 = {
   santarem: 14,
   evora: 7
 };
-function extractPrice2(params) {
+function extractPrice3(params) {
   const priceParam = params.find((p) => p.key === "price");
   return priceParam?.value?.value || 0;
 }
@@ -6060,7 +6243,7 @@ function mapOLXToListing(olx) {
     sourceSite: "OLX",
     sourceUrl: olx.url,
     title: olx.title,
-    priceEur: extractPrice2(olx.params),
+    priceEur: extractPrice3(olx.params),
     currency: "EUR",
     beds: extractBedrooms2(olx.params),
     baths: extractBathrooms2(olx.params),
@@ -6422,7 +6605,7 @@ var OLX_REGIONS3 = {
   acores: 19,
   madeira: 20
 };
-function extractPrice3(params) {
+function extractPrice4(params) {
   const priceParam = params.find((p) => p.key === "price");
   return priceParam?.value?.value || 0;
 }
@@ -6464,7 +6647,7 @@ function mapOLXToListing2(olx) {
     sourceSite: "OLX",
     sourceUrl: olx.url,
     title: olx.title,
-    priceEur: extractPrice3(olx.params),
+    priceEur: extractPrice4(olx.params),
     currency: "EUR",
     beds: extractBedrooms3(olx.params),
     baths: extractBathrooms3(olx.params),
@@ -6793,9 +6976,9 @@ var totalIndexedCount = 0;
 var schedulerInterval = null;
 async function fetchListings(query, location, priceRange) {
   const allListings = [];
-  for (const adapter2 of ADAPTERS) {
+  for (const adapter3 of ADAPTERS) {
     try {
-      const listings = await adapter2.searchListings({
+      const listings = await adapter3.searchListings({
         query,
         priceRange,
         userLocation: {
@@ -6807,7 +6990,7 @@ async function fetchListings(query, location, priceRange) {
       });
       allListings.push(...listings);
     } catch (error) {
-      console.error(`[Indexer] Error fetching from ${adapter2.siteId}:`, error);
+      console.error(`[Indexer] Error fetching from ${adapter3.siteId}:`, error);
     }
   }
   return allListings;
